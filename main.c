@@ -149,9 +149,9 @@ void* ship_modeling(void *arg){
 		int dx = (int)(cos(ship_m->Direction)*10);
 		int dy = (int)(sin(ship_m->Direction)*10);
 		
-		snprintf(logMessage, 128, "Ship <%s> moved now in <%s>, move <%d,%d> direct <%f>", 
-					ship_m->Name,stations[ship_m->Destination].Name, dx,dy, ship_m->Direction);
-		toConsole(logMessage);
+//		snprintf(logMessage, 128, "Ship <%s> moved now in <%s>, move <%d,%d> direct <%f>", 
+//					ship_m->Name,stations[ship_m->Destination].Name, dx,dy, ship_m->Direction);
+//		toConsole(logMessage);
 				
 		int stationX = stations[ship_m->Destination].X;
 		int stationY = stations[ship_m->Destination].Y;
@@ -165,11 +165,14 @@ void* ship_modeling(void *arg){
 			Sleep(SHIP_SPEED);
 		}
 		
-		while(!(pthread_mutex_trylock(&anchors[ship_m->Destination]))){
-			Sleep(SHIP_SPEED*5);
-		}
+//		while(!(pthread_mutex_trylock(&anchors[ship_m->Destination]))){
+//			Sleep(SHIP_SPEED*5);
+//			snprintf(logMessage, 128, "Ship <%s> try lock mutex #<%d>", 
+//						ship_m->Name,ship_m->Destination);
+//			toConsole(logMessage);
+//		}
 		
-//		pthread_mutex_lock();
+		pthread_mutex_lock(&anchors[ship_m->Destination]);
 //	int b= pthread_mutex_trylock(&anchors[ship_m->Destination]);
 			snprintf(logMessage, 128, "Ship <%s> lock mutex #<%d>", 
 						ship_m->Name,ship_m->Destination);
@@ -192,8 +195,8 @@ void* ship_modeling(void *arg){
 void start_threads(){
 	int j;
 	for(j=0;j<5;j=j+1){
-		pthread_mutex_init(anchors[j],NULL);
-		pthread_mutex_init(stations[j].Queue_mut,NULL);
+		pthread_mutex_init(&anchors[j],NULL);
+		pthread_mutex_init(&stations[j].Queue_mut,NULL);
 		pthread_create(&threads_stations[j], NULL, station_modeling, (void*) &stations[j]);	 
 	}
 	
@@ -202,6 +205,20 @@ void start_threads(){
 		pthread_create(&threads_ships[j], NULL, ship_modeling, (void*) &ships[j]);	 
 	}
 	
+}
+
+
+void stop_threads(){
+	int j;
+	for(j=0;j<5;j=j+1){
+		pthread_mutex_destroy(&anchors[j]);
+		pthread_mutex_destroy(stations[j].Queue_mut);
+		pthread_exit(&threads_stations[j]);	 
+	}
+	
+	for(j=0;j<3;j=j+1)	{
+		pthread_exit(&threads_ships[j]);	 
+	}
 }
 
 void DrawShips (HDC hdc){
@@ -267,6 +284,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam) 
 	switch(Message) {
 
 		case WM_DESTROY: {
+			stop_threads();
 			PostQuitMessage(0);
 			break;
 		}
@@ -277,9 +295,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam) 
     			return;
 //			globalTime += 1;
 //			InvalidateRect (hwnd,NULL,1);
-			hdc = BeginPaint(hwnd, &ps);
-			DrawComponents(hdc, ps.rcPaint);
-			EndPaint(hwnd, &ps);
+//			hdc = BeginPaint(hwnd, &ps);
+//			DrawComponents(hdc, ps.rcPaint);
+//			EndPaint(hwnd, &ps);
 			break;
 		}
 		case WM_PAINT: {
