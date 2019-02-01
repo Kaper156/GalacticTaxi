@@ -28,7 +28,7 @@ typedef struct {
 								//all citizens can be on one station (20*5)
 	int X;
 	int Y;
-	sem_t Port_sem;
+	pthread_mutex_t Port_mut;
 	pthread_mutex_t Queue_mut;
 	char Name[9];
 }Station;
@@ -41,19 +41,6 @@ Station stations[5] = {
 	{4, {0,1,2,3}, 255,60,  NULL,NULL, {'E','a','r','t','h'}}
 //	,{}
 };
-
-pthread_t threads_stations[5];
-
-
-void* station_modeling(void *arg){
-	Station *station_m = (Station*) arg;
-	//TODO fill pass
-	
-//	while(1){
-//		Sleep(50);
-////		sem_wait(station_m->Port_sem);
-//	}
-}
 
 
 void DrawPlanets(HDC hdc){
@@ -105,22 +92,13 @@ typedef struct{
 
 Ship ships[] = {
 	{ {'I', 'N', 'K'}, 1, &stations[0], 	0.7, 150, 200},
-	{ {'D', 'E', 'F'}, 1, &stations[3], 	-1.3,200, 100},
+	{ {'D', 'E', 'F'}, 1, &stations[1], 	-1.3,200, 100},
 	{ {'A', 'R', 'K'}, 1, &stations[2], 	0, 	  32, 300}
 };
 
-
-//TODO del
-pthread_mutex_t anchors[5];
-
-
 void ship_nextDest(Ship *ship, int next_dest){
-//	int x1 = stations[ship.Destination].X;
-//	int y1 = stations[ship.Destination].Y;
-
 	int x1 = ship->X;
 	int y1 = ship->Y;
-	
 	int x2 = stations[next_dest].X;
 	int y2 = stations[next_dest].Y;
 
@@ -128,9 +106,6 @@ void ship_nextDest(Ship *ship, int next_dest){
 	ship->Dest = &stations[next_dest];
 }
 
-
-
-//void* ship_modeling(Ship *ship_m){
 void* ship_modeling(void *arg){
 	Ship *ship_m = (Ship*) arg;
 	while(1){
@@ -151,7 +126,7 @@ void* ship_modeling(void *arg){
 		int stX = ship_m->Dest->X;
 		int stY = ship_m->Dest->Y;
 		
-		// Work
+		// Flying
 		while( !(	((stX+PLANET_RADIUS > ship_m->X)&(stX-PLANET_RADIUS < ship_m->X)) &
 					((stY+PLANET_RADIUS > ship_m->Y)&(stY-PLANET_RADIUS < ship_m->Y)) ))
 		{
@@ -162,14 +137,14 @@ void* ship_modeling(void *arg){
 		}
 		
 		//TODO delete promts
-		pthread_mutex_lock(&anchors[ship_m->Dest->ID]);
+		pthread_mutex_lock(&ship_m->Dest->Port_mut);
 			snprintf(logMessage, 128, "Ship <%s> lock mutex of #<%s>", 
 						ship_m->Name,ship_m->Dest->Name);
 			toConsole(logMessage);
 			ship_m->X = ship_m->Dest->X;
 			ship_m->Y = ship_m->Dest->Y;
 			Sleep(3000);
-		pthread_mutex_unlock(&anchors[ship_m->Dest->ID]);
+		pthread_mutex_unlock(&ship_m->Dest->Port_mut);
 		snprintf(logMessage, 128, "Ship <%s> unlock mutex of #<%s>", 
 						ship_m->Name,ship_m->Dest->Name);
 		toConsole(logMessage);
@@ -182,9 +157,9 @@ void* ship_modeling(void *arg){
 void start_threads(){
 	int j;
 	for(j=0;j<5;j=j+1){
-		pthread_mutex_init(&anchors[j],NULL);
-		pthread_mutex_init(&stations[j].Queue_mut,NULL);
-		pthread_create(&threads_stations[j], NULL, station_modeling, (void*) &stations[j]);	 
+//		pthread_mutex_init(&anchors[j],NULL);
+		pthread_mutex_init(&stations[j].Port_mut,NULL);
+//		pthread_create(&threads_stations[j], NULL, station_modeling, (void*) &stations[j]);	 
 	}	
 	for(j=0;j<3;j=j+1)	{
 		
@@ -193,15 +168,13 @@ void start_threads(){
 	
 }
 
-
 void stop_threads(){
 	int j;
 	for(j=0;j<5;j=j+1){
-		pthread_mutex_destroy(&anchors[j]);
-		pthread_mutex_destroy(stations[j].Queue_mut);
-		pthread_exit(&threads_stations[j]);	 
-	}
-	
+//		pthread_mutex_destroy(&anchors[j]);
+		pthread_mutex_destroy(stations[j].Port_mut);
+//		pthread_exit(&threads_stations[j]);	 
+	}	
 	for(j=0;j<3;j=j+1)	{
 		pthread_exit(&threads_ships[j]);	 
 	}
@@ -220,10 +193,7 @@ void DrawShips (HDC hdc){
 		POINT triangle[] = {{ x, y-dy},  { x-dx, y+dy}, { x+dx, y+dy}};
 		Polygon(hdc, triangle, 3);
 		TextOut(hdc, x+10, y+10, ships[i].Name,3);
-//		snprintf(logMessage, 128, "<%s> ship drawed at <%d, %d>", ships[i].Name, ships[i].X, ships[i].Y);
-//		toConsole(logMessage);
 	}		
-
 	DeleteObject(brush);
 }
 
@@ -254,21 +224,14 @@ void toConsole(char txt[],...){
 
 LRESULT OnCommand(HWND hwnd, int id, HWND hwndCtl, UINT codeNotify){
 	switch(id){
-		case 5: {
-
-//			start_threads();
-			break;
-		}
+		case 5: {break;}
 	}
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam) {
-
 	HDC hdc;
 	PAINTSTRUCT ps;
-
 	switch(Message) {
-
 		case WM_DESTROY: {
 			stop_threads();
 			PostQuitMessage(0);
@@ -279,26 +242,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam) 
 		case WM_TIMER: {
 			if(IsIconic(hwnd))
     			return;
-//			globalTime += 1;
-//			InvalidateRect (hwnd,NULL,1);
-//			hdc = BeginPaint(hwnd, &ps);
-//			DrawComponents(hdc, ps.rcPaint);
-//			EndPaint(hwnd, &ps);
 			break;
 		}
 		case WM_PAINT: {
-
 			hdc = BeginPaint(hwnd, &ps);
 			DrawComponents(hdc, ps.rcPaint);
 			EndPaint(hwnd, &ps);
-//			start_threads();
 			break;
 		}
 		
 		case WM_MOVE:{
-				hdc = BeginPaint(hwnd, &ps);
-			DrawComponents(hdc, ps.rcPaint);
-			EndPaint(hwnd, &ps);
+			InvalidateRect(hwnd, NULL, FALSE);
 			break;
 		}
 		case WM_ERASEBKGND: {
@@ -328,9 +282,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		MessageBox(NULL, "Window Registration Failed!","Error!",MB_ICONEXCLAMATION|MB_OK);
 		return 0;
 	}
-//
-//	init_data(); // initialize list of stations
-
 	//main dialog
 	 startWindow = CreateWindow("frame","Galactic democratic transport modeling program",WS_VISIBLE|WS_OVERLAPPED | WS_SYSMENU | WS_CLIPCHILDREN |
 			WS_TILEDWINDOW | WS_VISIBLE | LBS_STANDARD,
@@ -350,10 +301,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
    			LBS_WANTKEYBOARDINPUT,
    			10, 530, 500, 240,
    			hwnd, (HMENU) 2, hInstance, NULL);
-	
+
 	start_threads();
-	
-	// Start threads
+
 	while(GetMessage(&msg, NULL, 0, 0) > 0) {
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
