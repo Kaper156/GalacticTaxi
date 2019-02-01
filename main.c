@@ -11,23 +11,20 @@
 #define SHIP_SPEED 100
 #define PLANET_RADIUS 30
 // hwnds
-static HWND hwnd; /* A 'HANDLE', hence the H, or a pointer to our window */
+static HWND hwnd; 
 static HWND startWindow;
 static HWND consoleBox;
 static HWND hListBox;
 
-
 // Logs
 char logMessage[128];
-//void toConsole(char []);
 
-// ******* Stations logic start *******
+// ******* Stations *******
 typedef struct {
 	int ID;
 	int WaitedPassengers[100];  // Cause in worst situation
 								//all citizens can be on one station (20*5)
-	int X;
-	int Y;
+	int X, Y;
 	pthread_mutex_t Port_mut;
 	pthread_mutex_t Queue_mut;
 	char Name[9];
@@ -42,6 +39,104 @@ Station stations[5] = {
 //	,{}
 };
 
+// ******* Ships *******
+pthread_t threads_ships[3];
+
+typedef struct{
+	char Name[3];
+	// sem_t FreeSpaceSem;
+	short State;
+	Station *Dest;
+	double Direction;
+	int X,Y;
+}Ship;
+
+Ship ships[] = {
+	{ {'I', 'N', 'K'}, 1, &stations[0], 	0.7, 150, 200},
+	{ {'D', 'E', 'F'}, 1, &stations[1], 	-1.3,200, 100},
+	{ {'A', 'R', 'K'}, 1, &stations[2], 	0, 	  32, 300}
+};
+
+
+Station* ship_nextDest(Ship *ship, int next_dest){
+	int x1 = ship->X;
+	int y1 = ship->Y;
+	int x2 = stations[next_dest].X;
+	int y2 = stations[next_dest].Y;
+
+	ship->Direction = atan2((y2-y1),(x2-x1));
+	ship->Dest = &stations[next_dest];
+	return &stations[next_dest];
+}
+
+void* ship_modeling(void *arg){
+	Ship *ship_m = (Ship*) arg;
+	Station *dest;
+	while(1){
+		// TODO DELETE THIS
+		int next;
+		do{
+			Sleep(SHIP_SPEED);
+			srand(time(NULL) + (int)ship_m->Name[1] );
+			next = rand() % 5;
+		}while(next==ship_m->Dest->ID);
+		dest = ship_nextDest(ship_m, next);
+		// TODO change next
+		// TODO DELETE THIS
+		
+		int dx = (int)(cos(ship_m->Direction)*10);
+		int dy = (int)(sin(ship_m->Direction)*10);
+		
+		// Flying
+		while( !(	((dest->X+PLANET_RADIUS > ship_m->X)&(dest->X-PLANET_RADIUS < ship_m->X)) &
+					((dest->Y+PLANET_RADIUS > ship_m->Y)&(dest->Y-PLANET_RADIUS < ship_m->Y)) ))
+		{
+			ship_m->X = ship_m->X+dx;
+			ship_m->Y = ship_m->Y+dy;
+			InvalidateRect(hwnd, NULL, FALSE);
+			Sleep(SHIP_SPEED);
+		}
+		//TODO delete promts
+		pthread_mutex_lock(&dest->Port_mut);
+			snprintf(logMessage, 128, "Ship <%s> lock mutex of #<%s>", 
+						ship_m->Name,ship_m->Dest->Name);
+			toConsole(logMessage);
+			ship_m->X = ship_m->Dest->X;
+			ship_m->Y = ship_m->Dest->Y;
+			InvalidateRect(hwnd, NULL, FALSE);
+			Sleep(3000);
+		pthread_mutex_unlock(&dest->Port_mut);
+		snprintf(logMessage, 128, "Ship <%s> unlock mutex of #<%s>", 
+						ship_m->Name,ship_m->Dest->Name);
+		toConsole(logMessage);
+	}
+	return 0;
+}
+
+// ******* Threads *******
+
+void start_threads(){
+	int j;
+	for(j=0;j<5;j=j+1){
+		pthread_mutex_init(&stations[j].Port_mut,NULL);
+	}	
+	for(j=0;j<3;j=j+1)	{		
+		pthread_create(&threads_ships[j], NULL, ship_modeling, (void*) &ships[j]);	 
+	}
+	
+}
+
+void stop_threads(){
+	int j;
+	for(j=0;j<5;j=j+1){
+		pthread_mutex_destroy(stations[j].Port_mut);
+	}	
+	for(j=0;j<3;j=j+1)	{
+		pthread_exit(&threads_ships[j]);	 
+	}
+}
+
+// ******* Drawning *******
 
 void DrawPlanets(HDC hdc){
 	// Solid pen for planet
@@ -74,110 +169,6 @@ void DrawRoutes(HDC hdc){
 		}
 	}
 	DeleteObject(pen);
-}
-
-// ******* Stations logic end *******
-
-// ******* Ships logic start *******
-pthread_t threads_ships[3];
-
-typedef struct{
-	char Name[3];
-	// sem_t FreeSpaceSem;
-	short State;
-	Station *Dest;
-	double Direction;
-	int X,Y;
-}Ship;
-
-Ship ships[] = {
-	{ {'I', 'N', 'K'}, 1, &stations[0], 	0.7, 150, 200},
-	{ {'D', 'E', 'F'}, 1, &stations[1], 	-1.3,200, 100},
-	{ {'A', 'R', 'K'}, 1, &stations[2], 	0, 	  32, 300}
-};
-
-void ship_nextDest(Ship *ship, int next_dest){
-	int x1 = ship->X;
-	int y1 = ship->Y;
-	int x2 = stations[next_dest].X;
-	int y2 = stations[next_dest].Y;
-
-	ship->Direction = atan2((y2-y1),(x2-x1));
-	ship->Dest = &stations[next_dest];
-}
-
-void* ship_modeling(void *arg){
-	Ship *ship_m = (Ship*) arg;
-	while(1){
-		// TODO DELETE THIS
-		int next;
-		do{
-			Sleep(SHIP_SPEED);
-			srand(time(NULL) + (int)ship_m->Name[1] );
-			next = rand() % 5;
-		}while(next==ship_m->Dest->ID);
-		ship_nextDest(ship_m, next);
-		// TODO change next
-		// TODO DELETE THIS
-		
-		int dx = (int)(cos(ship_m->Direction)*10);
-		int dy = (int)(sin(ship_m->Direction)*10);
-		
-		int stX = ship_m->Dest->X;
-		int stY = ship_m->Dest->Y;
-		
-		// Flying
-		while( !(	((stX+PLANET_RADIUS > ship_m->X)&(stX-PLANET_RADIUS < ship_m->X)) &
-					((stY+PLANET_RADIUS > ship_m->Y)&(stY-PLANET_RADIUS < ship_m->Y)) ))
-		{
-			ship_m->X = ship_m->X+dx;
-			ship_m->Y = ship_m->Y+dy;
-			InvalidateRect(hwnd, NULL, FALSE);
-			Sleep(SHIP_SPEED);
-		}
-		
-		//TODO delete promts
-		pthread_mutex_lock(&ship_m->Dest->Port_mut);
-			snprintf(logMessage, 128, "Ship <%s> lock mutex of #<%s>", 
-						ship_m->Name,ship_m->Dest->Name);
-			toConsole(logMessage);
-			ship_m->X = ship_m->Dest->X;
-			ship_m->Y = ship_m->Dest->Y;
-			Sleep(3000);
-		pthread_mutex_unlock(&ship_m->Dest->Port_mut);
-		snprintf(logMessage, 128, "Ship <%s> unlock mutex of #<%s>", 
-						ship_m->Name,ship_m->Dest->Name);
-		toConsole(logMessage);
-	}
-	return 0;
-}
-
-// ******* Ships logic end *******
-
-void start_threads(){
-	int j;
-	for(j=0;j<5;j=j+1){
-//		pthread_mutex_init(&anchors[j],NULL);
-		pthread_mutex_init(&stations[j].Port_mut,NULL);
-//		pthread_create(&threads_stations[j], NULL, station_modeling, (void*) &stations[j]);	 
-	}	
-	for(j=0;j<3;j=j+1)	{
-		
-		pthread_create(&threads_ships[j], NULL, ship_modeling, (void*) &ships[j]);	 
-	}
-	
-}
-
-void stop_threads(){
-	int j;
-	for(j=0;j<5;j=j+1){
-//		pthread_mutex_destroy(&anchors[j]);
-		pthread_mutex_destroy(stations[j].Port_mut);
-//		pthread_exit(&threads_stations[j]);	 
-	}	
-	for(j=0;j<3;j=j+1)	{
-		pthread_exit(&threads_ships[j]);	 
-	}
 }
 
 void DrawShips (HDC hdc){
@@ -217,6 +208,8 @@ void DrawComponents(HDC hdc, RECT rect){
 	DeleteObject(hMemBitmap);
 	DeleteDC(hMemDC);
 }
+
+// ******* WinApi *******
 
 void toConsole(char txt[],...){
 	SendMessage(consoleBox, LB_INSERTSTRING, 0, (LPARAM)txt);
