@@ -1,0 +1,359 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <conio.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <windowsx.h>
+#include <windows.h>
+#include <time.h>
+#include <math.h>
+
+#define SHIP_SPEED 100
+#define PLANET_RADIUS 30
+// hwnds
+static HWND hwnd; /* A 'HANDLE', hence the H, or a pointer to our window */
+static HWND startWindow;
+static HWND consoleBox;
+static HWND hListBox;
+
+
+// Logs
+char logMessage[128];
+//void toConsole(char []);
+
+// ******* Stations logic start *******
+typedef struct {
+	int ID;
+	int WaitedPassengers[100];  // Cause in worst situation
+								//all citizens can be on one station (20*5)
+	int X;
+	int Y;
+	sem_t Port_sem;
+	pthread_mutex_t Queue_mut;
+	char Name[9];
+}Station;
+
+Station stations[5] = {
+	{0, {0,1,2,3}, 122,465, NULL,NULL, {'A', 'l', 't', 'a', 'i', 'r'}},
+	{1, {0,1,2,3}, 386,465, NULL,NULL, {'C','a','n','o','p','u','s'}},
+	{2, {0,1,2,3}, 465,215, NULL,NULL, {'C','a','p','e','l','l','a'}},
+	{3, {0,1,2,3}, 40,215,  NULL,NULL, {'N','e','w','-','T','e','r','r','a'}},
+	{4, {0,1,2,3}, 255,60,  NULL,NULL, {'E','a','r','t','h'}}
+//	,{}
+};
+
+pthread_t threads_stations[5];
+
+
+void* station_modeling(void *arg){
+	Station *station_m = (Station*) arg;
+	//TODO fill pass
+	
+//	while(1){
+//		Sleep(50);
+////		sem_wait(station_m->Port_sem);
+//	}
+}
+
+
+void DrawPlanets(HDC hdc){
+	// Solid pen for planet
+	HPEN pen = CreatePen(PS_SOLID, 2, 0);
+	SelectObject(hdc, pen);
+	// Draw planets and they names
+	int i=0;
+	for(; i<5; i=i+1){
+		int x = stations[i].X;
+		int y = stations[i].Y;
+
+		Ellipse(hdc, x-PLANET_RADIUS, y-PLANET_RADIUS, x+PLANET_RADIUS, y+PLANET_RADIUS);
+		TextOut(hdc, x+PLANET_RADIUS/3, y-PLANET_RADIUS*1.7, stations[i].Name,9);
+//		snprintf(logMessage, 128, "%s planet space port is prepared for a ship", stations[i].Name);
+//		toConsole(logMessage);
+	}
+	DeleteObject(pen);
+}
+
+void DrawRoutes(HDC hdc){
+	HPEN pen = CreatePen(PS_DASH, 1, 0);
+	SelectObject(hdc, pen);
+	// Draw routes
+	int i=0;
+	for(; i<5; i=i+1){
+		int j=4;
+		for(;j>i;j=j-1){
+			MoveToEx(hdc, stations[i].X, stations[i].Y, 0);
+			LineTo(hdc, stations[j].X, stations[j].Y);
+		}
+	}
+	DeleteObject(pen);
+}
+
+// ******* Stations logic end *******
+
+// ******* Ships logic start *******
+pthread_t threads_ships[3];
+
+typedef struct{
+	char Name[3];
+	// sem_t FreeSpaceSem;
+	short State, Destination;
+	double Direction;
+	int X,Y;
+}Ship;
+
+Ship ships[] = {
+	{ {'I', 'N', 'K'}, 1, 4, 90, 150,200},
+	{ {'D', 'E', 'F'}, 1, 3, 0, 200, 100},
+	{ {'A', 'R', 'K'}, 1, 2, 800, 32, 300}
+};
+
+
+//TODO del
+pthread_mutex_t anchors[5];
+
+
+void ship_nextDest(Ship *ship, int next_dest){
+//	int x1 = stations[ship.Destination].X;
+//	int y1 = stations[ship.Destination].Y;
+
+	int x1 = ship->X;
+	int y1 = ship->Y;
+	
+	int x2 = stations[next_dest].X;
+	int y2 = stations[next_dest].Y;
+
+	ship->Direction = atan2((y2-y1),(x2-x1));
+	ship->Destination = next_dest;
+}
+
+
+
+//void* ship_modeling(Ship *ship_m){
+void* ship_modeling(void *arg){
+	Ship *ship_m = (Ship*) arg;
+	while(1){
+//		Sleep(SHIP_SPEED*20);
+		
+		// TODO DELETE THIS
+		int next;
+		do{
+			Sleep(SHIP_SPEED);
+			srand(time(NULL) + (int)ship_m->Name[1] );
+			next = rand() % 5;
+		}while(next==ship_m->Destination);
+		// TODO DELETE THIS
+		
+		// TODO change next
+		ship_nextDest(ship_m, next);
+		int dx = (int)(cos(ship_m->Direction)*10);
+		int dy = (int)(sin(ship_m->Direction)*10);
+		
+		snprintf(logMessage, 128, "Ship <%s> moved now in <%s>, move <%d,%d> direct <%f>", 
+					ship_m->Name,stations[ship_m->Destination].Name, dx,dy, ship_m->Direction);
+		toConsole(logMessage);
+				
+		int stationX = stations[ship_m->Destination].X;
+		int stationY = stations[ship_m->Destination].Y;
+		
+		// Work
+		while( !(((stationX+PLANET_RADIUS > ship_m->X)&(stationX-PLANET_RADIUS < ship_m->X)) & ((stationY+PLANET_RADIUS > ship_m->Y)&(stationY-PLANET_RADIUS < ship_m->Y)) ))
+		{
+			ship_m->X = ship_m->X+dx;
+			ship_m->Y = ship_m->Y+dy;
+			InvalidateRect(hwnd, NULL, FALSE);
+			Sleep(SHIP_SPEED);
+		}
+		
+		while(!(pthread_mutex_trylock(&anchors[ship_m->Destination]))){
+			Sleep(SHIP_SPEED*5);
+		}
+		
+//		pthread_mutex_lock();
+//	int b= pthread_mutex_trylock(&anchors[ship_m->Destination]);
+			snprintf(logMessage, 128, "Ship <%s> lock mutex #<%d>", 
+						ship_m->Name,ship_m->Destination);
+			toConsole(logMessage);
+		
+			ship_m->X = stations[ship_m->Destination].X;
+			ship_m->Y = stations[ship_m->Destination].Y;
+			Sleep(3000);
+		pthread_mutex_unlock(&anchors[ship_m->Destination]);
+		snprintf(logMessage, 128, "Ship <%s> unlock mutex #<%d>", 
+						ship_m->Name,ship_m->Destination);
+		toConsole(logMessage);
+//		pthread_mutex_unlock(stations[ship_m->Destination].Queue_mut);
+	}
+	return 0;
+}
+
+// ******* Ships logic end *******
+
+void start_threads(){
+	int j;
+	for(j=0;j<5;j=j+1){
+		pthread_mutex_init(anchors[j],NULL);
+		pthread_mutex_init(stations[j].Queue_mut,NULL);
+		pthread_create(&threads_stations[j], NULL, station_modeling, (void*) &stations[j]);	 
+	}
+	
+	for(j=0;j<3;j=j+1)	{
+		
+		pthread_create(&threads_ships[j], NULL, ship_modeling, (void*) &ships[j]);	 
+	}
+	
+}
+
+void DrawShips (HDC hdc){
+	HBRUSH brush = CreateSolidBrush(0);
+	SelectObject(hdc, brush);
+	short dx = 10;
+	short dy = 8;
+	int i=0;
+	for(;i<3;i=i+1)
+	{		
+		int x = ships[i].X;
+		int y = ships[i].Y;
+		POINT triangle[] = {{ x, y-dy},  { x-dx, y+dy}, { x+dx, y+dy}};
+		Polygon(hdc, triangle, 3);
+		TextOut(hdc, x+10, y+10, ships[i].Name,3);
+//		snprintf(logMessage, 128, "<%s> ship drawed at <%d, %d>", ships[i].Name, ships[i].X, ships[i].Y);
+//		toConsole(logMessage);
+	}		
+
+	DeleteObject(brush);
+}
+
+void DrawComponents(HDC hdc, RECT rect){
+	int width = rect.right - rect.left;
+	int height = rect.bottom - rect.top;
+
+	HDC hMemDC = CreateCompatibleDC(hdc);
+	HBITMAP hMemBitmap = CreateCompatibleBitmap(hdc, width, height);
+	SelectObject(hMemDC, hMemBitmap);
+
+	HBRUSH hBrush = CreateSolidBrush(RGB(255,255,255)); // Fill white visible screen
+	FillRect(hMemDC,&rect,hBrush);
+	DeleteObject(hBrush);
+	SetTextAlign(hMemDC, TA_CENTER);
+ 	DrawRoutes(hMemDC);
+ 	DrawPlanets(hMemDC);
+ 	DrawShips(hMemDC);
+
+	BitBlt(hdc, 0, 0, width, height, hMemDC, 0, 0, SRCCOPY);
+	DeleteObject(hMemBitmap);
+	DeleteDC(hMemDC);
+}
+
+void toConsole(char txt[],...){
+	SendMessage(consoleBox, LB_INSERTSTRING, 0, (LPARAM)txt);
+}
+
+LRESULT OnCommand(HWND hwnd, int id, HWND hwndCtl, UINT codeNotify){
+	switch(id){
+		case 5: {
+
+//			start_threads();
+			break;
+		}
+	}
+}
+
+LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam) {
+
+	HDC hdc;
+	PAINTSTRUCT ps;
+
+	switch(Message) {
+
+		case WM_DESTROY: {
+			PostQuitMessage(0);
+			break;
+		}
+		default: return DefWindowProc(hwnd, Message, wParam, lParam);
+
+		case WM_TIMER: {
+			if(IsIconic(hwnd))
+    			return;
+//			globalTime += 1;
+//			InvalidateRect (hwnd,NULL,1);
+			hdc = BeginPaint(hwnd, &ps);
+			DrawComponents(hdc, ps.rcPaint);
+			EndPaint(hwnd, &ps);
+			break;
+		}
+		case WM_PAINT: {
+
+			hdc = BeginPaint(hwnd, &ps);
+			DrawComponents(hdc, ps.rcPaint);
+			EndPaint(hwnd, &ps);
+//			start_threads();
+			break;
+		}
+		
+		case WM_MOVE:{
+				hdc = BeginPaint(hwnd, &ps);
+			DrawComponents(hdc, ps.rcPaint);
+			EndPaint(hwnd, &ps);
+			break;
+		}
+		case WM_ERASEBKGND: {
+			return 1;
+		}
+		HANDLE_MSG(hwnd, WM_COMMAND, OnCommand);
+	return 0;
+	}
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+	WNDCLASSEX wc; /* A properties struct of our window */
+	
+	MSG msg; /* A temporary location for all messages */
+	memset(&wc,0,sizeof(wc));
+	wc.cbSize		 = sizeof(WNDCLASSEX);
+	wc.lpfnWndProc	 = WndProc;
+	wc.hInstance	 = hInstance;
+	wc.hCursor		 = LoadCursor(NULL, IDC_ARROW);
+
+	wc.hbrBackground = CreateSolidBrush(RGB(255,255,255));//(HBRUSH)(COLOR_WINDOW+1);
+	wc.lpszClassName = "WindowClass";
+	wc.hIcon		 = LoadIcon(NULL, IDI_APPLICATION);
+	wc.hIconSm		 = LoadIcon(NULL, IDI_APPLICATION);
+
+	if(!RegisterClassEx(&wc)) {
+		MessageBox(NULL, "Window Registration Failed!","Error!",MB_ICONEXCLAMATION|MB_OK);
+		return 0;
+	}
+//
+//	init_data(); // initialize list of stations
+
+	//main dialog
+	 startWindow = CreateWindow("frame","Galactic democratic transport modeling program",WS_VISIBLE|WS_OVERLAPPED | WS_SYSMENU | WS_CLIPCHILDREN |
+			WS_TILEDWINDOW | WS_VISIBLE | LBS_STANDARD,
+			100, 900, 800, 360,
+			hwnd,NULL,hInstance,NULL);
+
+	//main window
+	hwnd = CreateWindowEx(WS_EX_CLIENTEDGE,"WindowClass","Galactic democratic transport modeling program", WS_VISIBLE|WS_OVERLAPPED | WS_SYSMENU | WS_CLIPCHILDREN ,
+		CW_USEDEFAULT, /* x */
+		CW_USEDEFAULT, /* y */
+		1120, /* width */
+		800, /* height */
+		NULL,NULL,hInstance,NULL);
+
+	consoleBox = CreateWindow("listbox", NULL,
+   			WS_CHILD | WS_VISIBLE | LBS_STANDARD | LBS_DISABLENOSCROLL |
+   			LBS_WANTKEYBOARDINPUT,
+   			10, 530, 500, 240,
+   			hwnd, (HMENU) 2, hInstance, NULL);
+	
+	start_threads();
+	
+	// Start threads
+	while(GetMessage(&msg, NULL, 0, 0) > 0) {
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+
+	return msg.wParam;
+}
