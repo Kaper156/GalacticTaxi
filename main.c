@@ -97,15 +97,16 @@ pthread_t threads_ships[3];
 typedef struct{
 	char Name[3];
 	// sem_t FreeSpaceSem;
-	short State, Destination;
+	short State;
+	Station *Dest;
 	double Direction;
 	int X,Y;
 }Ship;
 
 Ship ships[] = {
-	{ {'I', 'N', 'K'}, 1, 4, 90, 150,200},
-	{ {'D', 'E', 'F'}, 1, 3, 0, 200, 100},
-	{ {'A', 'R', 'K'}, 1, 2, 800, 32, 300}
+	{ {'I', 'N', 'K'}, 1, &stations[0], 	0.7, 150, 200},
+	{ {'D', 'E', 'F'}, 1, &stations[3], 	-1.3,200, 100},
+	{ {'A', 'R', 'K'}, 1, &stations[2], 	0, 	  32, 300}
 };
 
 
@@ -124,7 +125,7 @@ void ship_nextDest(Ship *ship, int next_dest){
 	int y2 = stations[next_dest].Y;
 
 	ship->Direction = atan2((y2-y1),(x2-x1));
-	ship->Destination = next_dest;
+	ship->Dest = &stations[next_dest];
 }
 
 
@@ -133,31 +134,26 @@ void ship_nextDest(Ship *ship, int next_dest){
 void* ship_modeling(void *arg){
 	Ship *ship_m = (Ship*) arg;
 	while(1){
-//		Sleep(SHIP_SPEED*20);
-		
 		// TODO DELETE THIS
 		int next;
 		do{
 			Sleep(SHIP_SPEED);
 			srand(time(NULL) + (int)ship_m->Name[1] );
 			next = rand() % 5;
-		}while(next==ship_m->Destination);
+		}while(next==ship_m->Dest->ID);
+		ship_nextDest(ship_m, next);
+		// TODO change next
 		// TODO DELETE THIS
 		
-		// TODO change next
-		ship_nextDest(ship_m, next);
 		int dx = (int)(cos(ship_m->Direction)*10);
 		int dy = (int)(sin(ship_m->Direction)*10);
 		
-//		snprintf(logMessage, 128, "Ship <%s> moved now in <%s>, move <%d,%d> direct <%f>", 
-//					ship_m->Name,stations[ship_m->Destination].Name, dx,dy, ship_m->Direction);
-//		toConsole(logMessage);
-				
-		int stationX = stations[ship_m->Destination].X;
-		int stationY = stations[ship_m->Destination].Y;
+		int stX = ship_m->Dest->X;
+		int stY = ship_m->Dest->Y;
 		
 		// Work
-		while( !(((stationX+PLANET_RADIUS > ship_m->X)&(stationX-PLANET_RADIUS < ship_m->X)) & ((stationY+PLANET_RADIUS > ship_m->Y)&(stationY-PLANET_RADIUS < ship_m->Y)) ))
+		while( !(	((stX+PLANET_RADIUS > ship_m->X)&(stX-PLANET_RADIUS < ship_m->X)) &
+					((stY+PLANET_RADIUS > ship_m->Y)&(stY-PLANET_RADIUS < ship_m->Y)) ))
 		{
 			ship_m->X = ship_m->X+dx;
 			ship_m->Y = ship_m->Y+dy;
@@ -165,27 +161,18 @@ void* ship_modeling(void *arg){
 			Sleep(SHIP_SPEED);
 		}
 		
-//		while(!(pthread_mutex_trylock(&anchors[ship_m->Destination]))){
-//			Sleep(SHIP_SPEED*5);
-//			snprintf(logMessage, 128, "Ship <%s> try lock mutex #<%d>", 
-//						ship_m->Name,ship_m->Destination);
-//			toConsole(logMessage);
-//		}
-		
-		pthread_mutex_lock(&anchors[ship_m->Destination]);
-//	int b= pthread_mutex_trylock(&anchors[ship_m->Destination]);
-			snprintf(logMessage, 128, "Ship <%s> lock mutex #<%d>", 
-						ship_m->Name,ship_m->Destination);
+		//TODO delete promts
+		pthread_mutex_lock(&anchors[ship_m->Dest->ID]);
+			snprintf(logMessage, 128, "Ship <%s> lock mutex of #<%s>", 
+						ship_m->Name,ship_m->Dest->Name);
 			toConsole(logMessage);
-		
-			ship_m->X = stations[ship_m->Destination].X;
-			ship_m->Y = stations[ship_m->Destination].Y;
+			ship_m->X = ship_m->Dest->X;
+			ship_m->Y = ship_m->Dest->Y;
 			Sleep(3000);
-		pthread_mutex_unlock(&anchors[ship_m->Destination]);
-		snprintf(logMessage, 128, "Ship <%s> unlock mutex #<%d>", 
-						ship_m->Name,ship_m->Destination);
+		pthread_mutex_unlock(&anchors[ship_m->Dest->ID]);
+		snprintf(logMessage, 128, "Ship <%s> unlock mutex of #<%s>", 
+						ship_m->Name,ship_m->Dest->Name);
 		toConsole(logMessage);
-//		pthread_mutex_unlock(stations[ship_m->Destination].Queue_mut);
 	}
 	return 0;
 }
@@ -198,8 +185,7 @@ void start_threads(){
 		pthread_mutex_init(&anchors[j],NULL);
 		pthread_mutex_init(&stations[j].Queue_mut,NULL);
 		pthread_create(&threads_stations[j], NULL, station_modeling, (void*) &stations[j]);	 
-	}
-	
+	}	
 	for(j=0;j<3;j=j+1)	{
 		
 		pthread_create(&threads_ships[j], NULL, ship_modeling, (void*) &ships[j]);	 
