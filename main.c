@@ -10,6 +10,7 @@
 
 #define SHIP_SPEED 100
 #define PLANET_RADIUS 30
+#define PAS_FLY_EVERY_TIME 1
 // hwnds
 static HWND hwnd; 
 static HWND startWindow;
@@ -18,26 +19,85 @@ static HWND hListBox;
 
 // Logs
 char logMessage[128];
+// ******* Passengers *******
+int PasID = -1;
+
+typedef struct {
+	int ID;
+	struct Passenger *next;
+}Passenger;
+
+int next_station(int exclude){
+	int loc;
+	do{
+		srand(time(NULL) + exclude); //more stronger seed
+		loc = rand() % 5;
+	}while(loc == exclude);
+	return loc;
+}
 
 // ******* Stations *******
 typedef struct {
 	int ID;
-	int WaitedPassengers[100];  // Cause in worst situation
-								//all citizens can be on one station (20*5)
 	int X, Y;
 	pthread_mutex_t Port_mut;
 	pthread_mutex_t Queue_mut;
 	char Name[9];
+	Passenger Psn[5];
 }Station;
 
+
+void pass_push_end(Passenger *head, Passenger *psn)
+{	
+	while(*head->next)	{
+		*head = head->next;
+	}
+	*head->next = *psn;
+}
+
+void generate_waited(Station *station, int cnt){
+	Passenger *cur;
+	while(cnt>0)
+	{
+		PasID = PasID + 1;
+		*cur = (Passenger*)malloc(sizeof(Passenger))
+		next = next_station(station->ID);
+		station->Psn[next].ID = PasID;
+		station->Pas[cnt][1] = next_station(station->ID);
+		cnt = cnt-1;
+	}
+}
+
+
 Station stations[5] = {
-	{0, {0,1,2,3}, 122,465, NULL,NULL, {'A', 'l', 't', 'a', 'i', 'r'}},
-	{1, {0,1,2,3}, 386,465, NULL,NULL, {'C','a','n','o','p','u','s'}},
-	{2, {0,1,2,3}, 465,215, NULL,NULL, {'C','a','p','e','l','l','a'}},
-	{3, {0,1,2,3}, 40,215,  NULL,NULL, {'N','e','w','-','T','e','r','r','a'}},
-	{4, {0,1,2,3}, 255,60,  NULL,NULL, {'E','a','r','t','h'}}
-//	,{}
+	{0,  122,465, NULL,NULL, {'A', 'l', 't', 'a', 'i', 'r'}, NULL},
+	{1,  386,465, NULL,NULL, {'C','a','n','o','p','u','s'}, NULL},
+	{2,  465,215, NULL,NULL, {'C','a','p','e','l','l','a'}, NULL},
+	{3,  40,215,  NULL,NULL, {'N','e','w','-','T','e','r','r','a'}, NULL},
+	{4,  255,60,  NULL,NULL, {'E','a','r','t','h'}, NULL}
 };
+
+
+
+Passengers[] generate_waited_at_station(int cnt){
+	Passengers stationPas[4];
+	// Generate 
+	int a1,a2,a3;
+	srand(time(NULL) + cnt); //more stronger seed
+	a1 = rand() % cnt/3; 	// 0,....a1 
+	srand(time(NULL) + cnt); 
+	a2 = rand() % cnt-a1; 	//a1.. a2
+	srand(time(NULL) + cnt); 
+	a3 = rand() % cnt-a1-a2;//a2...a3
+							//a3... a3-cnt
+	int i=0;
+	for(;i<4;i=i+1){
+		stationPas[i].DestID = 
+	}
+	
+	
+	
+}
 
 // ******* Ships *******
 pthread_t threads_ships[3];
@@ -49,43 +109,48 @@ typedef struct{
 	Station *Dest;
 	double Direction;
 	int X,Y;
+	int Pas[5];
 }Ship;
 
 Ship ships[] = {
-	{ {'I', 'N', 'K'}, 1, &stations[0], 	0.7, 150, 200},
-	{ {'D', 'E', 'F'}, 1, &stations[1], 	-1.3,200, 100},
-	{ {'A', 'R', 'K'}, 1, &stations[2], 	0, 	  32, 300}
+	{ {'I', 'N', 'K'}, 1, &stations[0], 	0.7, 150, 200, {-1,-1,-1,-1,-1}},
+	{ {'D', 'E', 'F'}, 1, &stations[1], 	-1.3,200, 100, {-1,-1,-1,-1,-1}},
+	{ {'A', 'R', 'K'}, 1, &stations[2], 	0, 	  32, 300, {-1,-1,-1,-1,-1}}
 };
 
 
-Station* ship_nextDest(Ship *ship, int next_dest){
+Station* ship_nextDest(Ship *ship, Station *station){
 	int x1 = ship->X;
 	int y1 = ship->Y;
-	int x2 = stations[next_dest].X;
-	int y2 = stations[next_dest].Y;
+	int x2 = station->X;
+	int y2 = station->Y;
 
 	ship->Direction = atan2((y2-y1),(x2-x1));
-	ship->Dest = &stations[next_dest];
-	return &stations[next_dest];
+	ship->Dest = station;
+	return station;
 }
 
 void* ship_modeling(void *arg){
 	Ship *ship_m = (Ship*) arg;
-	Station *dest;
+	Station *dest = ship_nextDest(ship_m, ship_m->Dest); // for set direction
+	
 	while(1){
-		// TODO DELETE THIS
-		int next;
-		do{
-			Sleep(SHIP_SPEED);
-			srand(time(NULL) + (int)ship_m->Name[1] );
-			next = rand() % 5;
-		}while(next==ship_m->Dest->ID);
-		dest = ship_nextDest(ship_m, next);
-		// TODO change next
-		// TODO DELETE THIS
-		
-		int dx = (int)(cos(ship_m->Direction)*10);
-		int dy = (int)(sin(ship_m->Direction)*10);
+//		// TODO DELETE THIS
+//		int next;
+//		do{
+//			Sleep(SHIP_SPEED);
+//			srand(time(NULL) + (int)ship_m->Name[1] );
+//			next = rand() % 5;
+//		}while(next==ship_m->Dest->ID);
+//		dest = ship_nextDest(ship_m, next);
+//		// TODO change next
+//		// TODO DELETE THIS
+//		
+
+		// TODO: pick params
+		// Calc step vector params
+		int dx = (int)(cos(ship_m->Direction)*30);
+		int dy = (int)(sin(ship_m->Direction)*30);
 		
 		// Flying
 		while( !(	((dest->X+PLANET_RADIUS > ship_m->X)&(dest->X-PLANET_RADIUS < ship_m->X)) &
@@ -96,15 +161,33 @@ void* ship_modeling(void *arg){
 			InvalidateRect(hwnd, NULL, FALSE);
 			Sleep(SHIP_SPEED);
 		}
-		//TODO delete promts
-		pthread_mutex_lock(&dest->Port_mut);
-			snprintf(logMessage, 128, "Ship <%s> lock mutex of #<%s>", 
+		
+		snprintf(logMessage, 128, "Ship <%s> arrived to port of #<%s>", 
 						ship_m->Name,ship_m->Dest->Name);
+		toConsole(logMessage);
+		pthread_mutex_lock(&dest->Port_mut);
+			snprintf(logMessage, 128, "Ship <%s> start landing passengers of #<%s>, next station <%s>", 
+						ship_m->Name,ship_m->Dest->Name, ship_m->Dest->Name);
 			toConsole(logMessage);
+			
 			ship_m->X = ship_m->Dest->X;
 			ship_m->Y = ship_m->Dest->Y;
 			InvalidateRect(hwnd, NULL, FALSE);
 			Sleep(3000);
+			if(PAS_FLY_EVERY_TIME) // Cyclic travelers
+			{
+				// TODO: disembark
+				// TODO: check pass : True
+					// TODO: get_next_station
+					// TODO: arrive passengers
+				
+			}
+			
+			
+			// TODO: else
+				//TODO: random or max_pas - planet
+				
+			
 		pthread_mutex_unlock(&dest->Port_mut);
 		snprintf(logMessage, 128, "Ship <%s> unlock mutex of #<%s>", 
 						ship_m->Name,ship_m->Dest->Name);
@@ -116,6 +199,7 @@ void* ship_modeling(void *arg){
 // ******* Threads *******
 
 void start_threads(){
+
 	int j;
 	for(j=0;j<5;j=j+1){
 		pthread_mutex_init(&stations[j].Port_mut,NULL);
