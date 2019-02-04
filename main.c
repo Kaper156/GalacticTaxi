@@ -8,7 +8,7 @@
 #include <time.h>
 #include <math.h>
 
-#define SHIP_SPEED 100
+#define SHIP_SPEED 10
 #define PLANET_RADIUS 30
 // hwnds
 static HWND hwnd; 
@@ -48,7 +48,7 @@ typedef struct{
 	short State;
 	Station *Dest;
 	double Direction;
-	int X,Y;
+	double X,Y;
 }Ship;
 
 Ship ships[] = {
@@ -84,8 +84,8 @@ void* ship_modeling(void *arg){
 		// TODO change next
 		// TODO DELETE THIS
 		
-		int dx = (int)(cos(ship_m->Direction)*10);
-		int dy = (int)(sin(ship_m->Direction)*10);
+		double dx = cos(ship_m->Direction);
+		double dy = sin(ship_m->Direction);
 		
 		// Flying
 		while( !(	((dest->X+PLANET_RADIUS > ship_m->X)&(dest->X-PLANET_RADIUS < ship_m->X)) &
@@ -179,8 +179,8 @@ void DrawShips (HDC hdc){
 	int i=0;
 	for(;i<3;i=i+1)
 	{		
-		int x = ships[i].X;
-		int y = ships[i].Y;
+		int x = (int)ships[i].X;
+		int y = (int)ships[i].Y;
 		POINT triangle[] = {{ x, y-dy},  { x-dx, y+dy}, { x+dx, y+dy}};
 		Polygon(hdc, triangle, 3);
 		TextOut(hdc, x+10, y+10, ships[i].Name,3);
