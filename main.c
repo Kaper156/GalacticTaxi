@@ -33,12 +33,13 @@ static HWND listViewPassengers;
 
 // Logs
 char logMessage[128];
-//void* toConsole(char txt[]);
+void toConsole(char txt[]);
 //int PS_COUNT = rand() % 4 + 14; //Make around 16 ps's
 
 // ******* Structures *******
 typedef struct {
 	int ID, Position, Dest, State;
+	int 
 }Passenger;
 
 typedef struct {
@@ -91,16 +92,14 @@ void* passenger_modeling(void *arg){
 		while((passenger->State==WAITING) & (stations[passenger->Position].ArriveTo != passenger->Dest)){
 			Sleep(100);
 		}
-	
-		
+			
 		//Check freespace
 		//get in ship //Position += 10
 		int shipID = stations[passenger->Position].ShipInPortID;
 		if(shipID == -1){
 			continue;
 		}
-		
-		
+				
 		snprintf(logMessage, 128, "Pass#%d start landing to ship <%d>", 
 						passenger->ID, shipID);
 		toConsole(logMessage);
@@ -479,7 +478,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam) 
 					break;
 				}
 				case TM_PASSENGER:{
-//					LoadPassengers(listViewPassengers, ps);
+					LVPassengers_LoadItems(listViewPassengers, ps);
 					break;
 				}
 			}
