@@ -18,6 +18,7 @@
 // Constants for pas
 #define FLY 	1
 #define WAITING 0
+#define END_TRAVEL -1
 
 // Timer ID's
 #define TM_DRAW 		1
@@ -38,7 +39,7 @@ void toConsole(char txt[]);
 
 // ******* Structures *******
 typedef struct Passenger {
-	int ID, Position, Dest, State;
+	int ID, Position, Dest, State, TrvCnt;
 }Passenger;
 
 typedef struct Station {
@@ -86,7 +87,8 @@ void* passenger_modeling(void *arg){
 	passenger->State = WAITING;
 	Ship *curShip;
 	Station *curStation;
-	while(1){
+	while(passenger->TrvCnt < 1){
+//	while(1){
 	
 		// Wait for our station arriving
 		curStation = &stations[passenger->Position];
@@ -135,8 +137,9 @@ void* passenger_modeling(void *arg){
 			Sleep(10);
 		}
 	
-		
+		passenger->TrvCnt = passenger->TrvCnt + 1;
 	}	
+	passenger->State = END_TRAVEL;
 	return 0;
 }
 
@@ -167,6 +170,7 @@ int find_max_dest(int stID){
 			ID = i;
 		}
 	}
+	
 	return ID;
 }
 
@@ -184,6 +188,7 @@ void disembark(Ship *ship){
 Station* ship_arrival(Ship *ship){
 	// Find destination for max passengers
 	int wantedArrive = find_max_dest(ship->Dest->ID); 
+	
 	
 	// Notify station about ship and next Dest
 	ship->Dest->ShipInPortID = ship->ID;
@@ -264,7 +269,7 @@ void init_data(){
 	int cnt=1;
 	int tDest;
 	for(j=0;j<PS_COUNT;j=j+1){
-		ps[j] = (Passenger){cnt, rand()%5, -1, WAITING };
+		ps[j] = (Passenger){cnt, rand()%5, -1, WAITING, 0};
 		ps[j].Dest = rand_exclude(5, ps[j].Position, cnt);
 		cnt = cnt+1;
 	}
@@ -424,17 +429,19 @@ void toConsole(char txt[]){
 void LVPassengers_InitColumns(HWND hwndLV){ 
    	LVCOLUMN lvc;
 	int i;
-	char cTitles[3][10];
+	char cTitles[5][12];
 	
 	strcpy(cTitles[0], "ID");
-	strcpy(cTitles[1], "Position");
-	strcpy(cTitles[2], "Destination");
+	strcpy(cTitles[1], "State");
+	strcpy(cTitles[2], "Position");
+	strcpy(cTitles[3], "Destination");
+	strcpy(cTitles[4], "Travel count");
 	
-	for(i=0;i<3;i=i+1){
+	for(i=0;i<5;i=i+1){
 		memset(&lvc, 0, sizeof(lvc));
 		lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
 		lvc.fmt = LVCFMT_LEFT;
-		lvc.cx = 100;
+		lvc.cx = 80;
 		lvc.pszText = cTitles[i];
 		lvc.iSubItem = i;
 		ListView_InsertColumn(hwndLV, i, & lvc);
@@ -443,18 +450,17 @@ void LVPassengers_InitColumns(HWND hwndLV){
 } 
 
 void LVPassengers_LoadItems(HWND hwndLV){
-	//TODO reformat
-	//TODO ps?
-	//DElETE ALL
-	ListView_DeleteAllItems(hwndLV);
-//   
-
-	char mes[20];
-	//INSERT NEW BY GROUP
 	int i, gid;
 	char _id[3];
 	LVITEM lvItem;
+	
+	ListView_DeleteAllItems(hwndLV);
+	
 	for(i=0; i<PS_COUNT; i=i+1){
+		if(ps[i].State == END_TRAVEL){
+			continue;
+		}
+		
 		memset(&lvItem, 0, sizeof(lvItem));
 		memset(&_id, 0, sizeof(_id));
 		
@@ -466,18 +472,28 @@ void LVPassengers_LoadItems(HWND hwndLV){
 	    lvItem.state     = 0;
 		ListView_InsertItem(hwndLV, &lvItem);
 		
+		// Set state
 		lvItem.iSubItem = 1;
 		if(ps[i].State == FLY){
+			lvItem.pszText = "Flying";
+		}
+		else{
+			lvItem.pszText = "Waiting";
+		}
+		ListView_SetItem(hwndLV, &lvItem);		
+		
+		// Set Position
+		lvItem.iSubItem = 2;
+		if(ps[i].State == FLY){
 			lvItem.pszText = ships[ps[i].Position].Name;
-			sprintf(mes, "<%D> in ship <%s>", ps[i], ships[ps[i].Position].Name);
-			toConsole(mes);
 		}
 		else{
 			lvItem.pszText = stations[ps[i].Position].Name;
 		}
 		ListView_SetItem(hwndLV, &lvItem);		
 		
-		lvItem.iSubItem = 2;
+		// Set Destination
+		lvItem.iSubItem = 3;
 		lvItem.pszText = stations[ps[i].Dest].Name;
 		ListView_SetItem(hwndLV, &lvItem);	
 	}
