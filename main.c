@@ -11,7 +11,7 @@
 #include <stdarg.h>
 
 // Settings
-#define PS_COUNT 	5
+//#define PS_COUNT 	5
 #define SHIP_SPEED 	10
 #define PLANET_RADIUS 30
 #define MAX_TRAVELS 1
@@ -65,14 +65,10 @@ Station stations[5];
 pthread_t threads_ships[3];
 Ship ships[3];
 
-pthread_t threads_ps[PS_COUNT];
-Passenger ps[PS_COUNT];
-//srand(time(NULL));
-//int PS_COUNT = rand() % 5 + 14;
-//pthread_t threads_ps[] = malloc(sizeof(pthread_t) * PS_COUNT);
-//Passenger ps[] = malloc(sizeof(pthread_t) * Passenger);
-
-//int PS_COUNT = rand() % 4 + 14; //Make around 16 ps's
+// Dynamic
+int ps_cnt;
+pthread_t *threads_ps;
+Passenger *ps;
 
 // ******* Modeling *******
 
@@ -162,7 +158,7 @@ int find_max_dest(int stID){
 	int max = 0, ID = 0, i=0;
 	int cnts[5] = {0,0,0,0,0};
 	
-	for(i=0; i<PS_COUNT; i=i+1){ //count dests
+	for(i=0; i<ps_cnt; i=i+1){ //count dests
 		if((ps[i].State==WAITING) & (ps[i].Position==stID)){
 			cnts[ps[i].Dest] = cnts[ps[i].Dest] + 1;
 		}
@@ -192,7 +188,7 @@ int find_max_dest(int stID){
 
 void disembark(Ship *ship){
 	int i;
-	for(i=0; i<PS_COUNT; i=i+1){
+	for(i=0; i<ps_cnt; i=i+1){
 		if((ps[i].State == FLY) & (ps[i].Position == ship->ID)){
 			ps[i].Position = ship->Dest->ID;
 			ps[i].State = WAITING;
@@ -292,9 +288,10 @@ void init_data(){
 
 	int cnt=1;
 	int tDest;
-//	PS_COUNT = rand() % 4 + 14; //Make around 16 ps's
+	ps_cnt = rand() % 4 + 14; //Make around 16 ps's
+	ps = (Passenger*) malloc(sizeof(Passenger) * ps_cnt);
 	
-	for(j=0;j<PS_COUNT;j=j+1){
+	for(j=0;j<ps_cnt;j=j+1){
 		ps[j] = (Passenger){cnt, rand()%5, -1, WAITING, 0};
 		ps[j].Dest = rand_exclude(5, ps[j].Position, cnt);
 		stations[ps[j].Position].PasCnt = stations[ps[j].Position].PasCnt + 1;
@@ -311,7 +308,8 @@ void start_threads(){
 		pthread_mutex_init(&ships[j].Queue_mut,NULL);
 		pthread_create(&threads_ships[j], NULL, ship_modeling, (void*) &ships[j]);	 
 	}
-	for(j=0;j<PS_COUNT; j=j+1){
+	threads_ps = (pthread_t*) malloc(sizeof(pthread_t) * ps_cnt);
+	for(j=0;j<ps_cnt; j=j+1){
 		pthread_create(&threads_ps[j], NULL, passenger_modeling, (void*) &ps[j]);
 	}
 	
@@ -327,7 +325,7 @@ void stop_threads(){
 		pthread_mutex_destroy(&ships[j].Queue_mut);
 		pthread_exit(&threads_ships[j]);	 
 	}
-	for(j=0;j<PS_COUNT; j=j+1){
+	for(j=0;j<ps_cnt; j=j+1){
 		pthread_exit(&threads_ps[j]);
 	}
 }
@@ -395,7 +393,7 @@ void DrawPassengerList(HDC hdc){
 	char ids[8][124], temp[4];
 	int i, j;
 	
-	for(i=0;i<PS_COUNT;i=i+1){
+	for(i=0;i<ps_cnt;i=i+1){
 		j = ps[i].Position;
 		if(ps[i].State == FLY){
 			j = j+5;
@@ -488,7 +486,7 @@ void LVPassengers_LoadItems(HWND hwndLV){
 	
 	ListView_DeleteAllItems(hwndLV);
 	
-	for(i=0; i<PS_COUNT; i=i+1){
+	for(i=0; i<ps_cnt; i=i+1){
 		if(ps[i].State == END_TRAVEL){
 			continue;
 		}
