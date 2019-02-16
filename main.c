@@ -8,11 +8,13 @@
 #include <commctrl.h>
 #include <time.h>
 #include <math.h>
+#include <stdarg.h>
 
 // Settings
-#define PS_COUNT 	20
+#define PS_COUNT 	5
 #define SHIP_SPEED 	10
 #define PLANET_RADIUS 30
+#define MAX_TRAVELS 1
 //#define PASSENGER_RECYCLE 1
 
 // Constants for pas
@@ -34,7 +36,7 @@ static HWND listViewPassengers;
 
 // Logs
 char logMessage[128];
-void toConsole(char txt[]);
+void toConsoleSprintf (char *fmt, ...);
 //int PS_COUNT = rand() % 4 + 14; //Make around 16 ps's
 
 // ******* Structures *******
@@ -87,8 +89,7 @@ void* passenger_modeling(void *arg){
 	passenger->State = WAITING;
 	Ship *curShip;
 	Station *curStation;
-	while(passenger->TrvCnt < 1){
-//	while(1){
+	while(passenger->TrvCnt < MAX_TRAVELS){
 	
 		// Wait for our station arriving
 		curStation = &stations[passenger->Position];
@@ -114,9 +115,8 @@ void* passenger_modeling(void *arg){
 			curShip->FreeSpace = curShip->FreeSpace - 1;
 			passenger->State = FLY;
 			passenger->Position = curShip->ID;
-			snprintf(logMessage, 128, "Passenger <%d> landing to ship <%s>", 
+			toConsoleSprintf("Passenger <%d> landing to ship <%s>", 
 						passenger->ID, curShip->Name);
-			toConsole(logMessage);
 		pthread_mutex_unlock(&curShip->Queue_mut);
 		
 		while(passenger->State==FLY){
@@ -124,9 +124,8 @@ void* passenger_modeling(void *arg){
 		}
 		
 		curStation = curShip->Dest;
-		snprintf(logMessage, 128, "Passenger <%d> landing to station <%s>", 
-						passenger->ID, curStation->Name );
-		toConsole(logMessage);
+		toConsoleSprintf("Passenger <%d> landing to station <%s>", 
+						passenger->ID, curStation->Name);
 		
 		Sleep(3000); //Wait for next ship
 		
@@ -160,7 +159,7 @@ int find_max_dest(int stID){
 	int cnts[5] = {0,0,0,0,0};
 	
 	for(i=0; i<PS_COUNT; i=i+1){ //count dests
-		if((ps[i].State==WAITING) &(ps[i].Position==stID)){
+		if((ps[i].State==WAITING) & (ps[i].Position==stID)){
 			cnts[ps[i].Dest] = cnts[ps[i].Dest] + 1;
 		}
 	}
@@ -169,6 +168,13 @@ int find_max_dest(int stID){
 			max = cnts[i];
 			ID = i;
 		}
+	}
+	
+//	if(max<1){
+//		return rand_exclude(5, stID, stID);
+//	}
+	if(max<1){
+		return -1;
 	}
 	
 	return ID;
@@ -188,7 +194,21 @@ void disembark(Ship *ship){
 Station* ship_arrival(Ship *ship){
 	// Find destination for max passengers
 	int wantedArrive = find_max_dest(ship->Dest->ID); 
-	
+//	if(wantedArrive==-1){ // find station where more than zero passenger
+//		int cnt = ship->Dest->ID;
+//		do{
+//			cnt = (cnt+1) % 5;
+//			if(cnt == ship->Dest->ID){
+//				disembark(ship);
+//				return NULL;
+//			}
+//			wantedArrive = find_max_dest(cnt);
+//		}while(wantedArrive==-1);
+//	}
+
+	if(wantedArrive==-1){
+		wantedArrive = rand_exclude(5, ship->Dest->ID, ship->ID);
+	}
 	
 	// Notify station about ship and next Dest
 	ship->Dest->ShipInPortID = ship->ID;
@@ -213,12 +233,12 @@ Station* ship_arrival(Ship *ship){
 void* ship_modeling(void *arg){
 	Ship *ship_m = (Ship*) arg;
 	Station *dest;
-	
+	short flagMove=1;
 	int next = rand_exclude(5, ship_m->Dest->ID, ship_m->ID);
 	dest = ship_nextDest(ship_m, next);
 		
 	// Cycle of flying
-	while(1){
+	while(flagMove>0){
 		double dx = cos(ship_m->Direction);
 		double dy = sin(ship_m->Direction);
 		
@@ -234,21 +254,25 @@ void* ship_modeling(void *arg){
 		// Wait in the planet's orbit
 		pthread_mutex_lock(&dest->Port_mut);
 			// Now ship in station
-			snprintf(logMessage, 128, "Ship <%s> arrived to station <%s>", 
+			toConsoleSprintf("Ship <%s> arrived to station <%s>", 
 						ship_m->Name,ship_m->Dest->Name);
-			toConsole(logMessage);
 			ship_m->X = ship_m->Dest->X;
 			ship_m->Y = ship_m->Dest->Y;
 						
 			// Change inner passengers position to current station			
-			ship_arrival(ship_m);							
+			if(ship_arrival(ship_m) == NULL){
+				flagMove = 0;
+			}
 		// Leave port	
 		pthread_mutex_unlock(&dest->Port_mut);
-		snprintf(logMessage, 128, "Ship <%s> leaves station <%s>", 
+		toConsoleSprintf("Ship <%s> leaves station <%s>", 
 						ship_m->Name,ship_m->Dest->Name);
-		toConsole(logMessage);
 		dest = ship_m->Dest;
 	}
+	
+	toConsoleSprintf("Ship <%s> leaves station doesnt see any passenger. Stop fly.", 
+						ship_m->Name);
+	
 	return 0;
 }
 
@@ -419,7 +443,17 @@ void DrawComponents(HDC hdc, RECT rect){
 
 // ******* WinApi *******
 
+void toConsoleSprintf (char *fmt, ...) {
+	char buf[128];
+    va_list va;
+    va_start (va, fmt);
+    vsprintf (buf, fmt, va);
+    va_end (va);
+    SendMessage(consoleBox, LB_ADDSTRING, 0, (LPARAM)buf);
+}
+
 void toConsole(char txt[]){
+	
 	SendMessage(consoleBox, LB_ADDSTRING, 0, (LPARAM)txt);
 	//LB_ADDSTRING
 	//	LB_INSERTSTRING
@@ -451,7 +485,7 @@ void LVPassengers_InitColumns(HWND hwndLV){
 
 void LVPassengers_LoadItems(HWND hwndLV){
 	int i, gid;
-	char _id[3];
+	char temp[3];
 	LVITEM lvItem;
 	
 	ListView_DeleteAllItems(hwndLV);
@@ -462,10 +496,10 @@ void LVPassengers_LoadItems(HWND hwndLV){
 		}
 		
 		memset(&lvItem, 0, sizeof(lvItem));
-		memset(&_id, 0, sizeof(_id));
+		memset(&temp, 0, sizeof(temp));
 		
-		sprintf(_id, "%d", ps[i].ID);
-		lvItem.pszText   = _id;
+		sprintf(temp, "%d", ps[i].ID);
+		lvItem.pszText   = temp;
 	    lvItem.mask      = LVIF_TEXT | LVIF_STATE;
 	    lvItem.stateMask = 0;
 	    lvItem.iSubItem  = 0;
@@ -495,6 +529,13 @@ void LVPassengers_LoadItems(HWND hwndLV){
 		// Set Destination
 		lvItem.iSubItem = 3;
 		lvItem.pszText = stations[ps[i].Dest].Name;
+		ListView_SetItem(hwndLV, &lvItem);	
+		
+		// Set TrvCnt
+		lvItem.iSubItem = 4;
+		memset(&temp, 0, sizeof(temp));
+		sprintf(temp, "%d", ps[i].TrvCnt);
+		lvItem.pszText = temp;
 		ListView_SetItem(hwndLV, &lvItem);	
 	}
 }
