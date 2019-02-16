@@ -11,11 +11,10 @@
 #include <stdarg.h>
 
 // Settings
-#define PS_COUNT 	5
+#define PS_COUNT 	20
 #define SHIP_SPEED 	10
 #define PLANET_RADIUS 30
-#define MAX_TRAVELS 1
-//#define PASSENGER_RECYCLE 1
+#define MAX_TRAVELS 35
 
 // Constants for pas
 #define FLY 	1
@@ -26,18 +25,14 @@
 #define TM_DRAW 		1
 #define TM_PASSENGER 	2
 
-
 // hwnds
 static HWND hwnd; 
 static HWND startWindow;
 static HWND consoleBox;
-static HWND hListBox;
 static HWND listViewPassengers;
 
 // Logs
-char logMessage[128];
 void toConsoleSprintf (char *fmt, ...);
-//int PS_COUNT = rand() % 4 + 14; //Make around 16 ps's
 
 // ******* Structures *******
 typedef struct Passenger {
@@ -50,6 +45,7 @@ typedef struct Station {
 	char Name[9];
 	pthread_mutex_t Port_mut;
 	int ArriveTo, ShipInPortID;
+	int PasCnt;
 }Station;
 
 typedef struct Ship {
@@ -71,7 +67,12 @@ Ship ships[3];
 
 pthread_t threads_ps[PS_COUNT];
 Passenger ps[PS_COUNT];
+//srand(time(NULL));
+//int PS_COUNT = rand() % 5 + 14;
+//pthread_t threads_ps[] = malloc(sizeof(pthread_t) * PS_COUNT);
+//Passenger ps[] = malloc(sizeof(pthread_t) * Passenger);
 
+//int PS_COUNT = rand() % 4 + 14; //Make around 16 ps's
 
 // ******* Modeling *******
 
@@ -117,6 +118,8 @@ void* passenger_modeling(void *arg){
 			passenger->Position = curShip->ID;
 			toConsoleSprintf("Passenger <%d> landing to ship <%s>", 
 						passenger->ID, curShip->Name);
+			curStation->PasCnt = curStation->PasCnt - 1;
+			//TODO DECREMENT
 		pthread_mutex_unlock(&curShip->Queue_mut);
 		
 		while(passenger->State==FLY){
@@ -126,7 +129,7 @@ void* passenger_modeling(void *arg){
 		curStation = curShip->Dest;
 		toConsoleSprintf("Passenger <%d> landing to station <%s>", 
 						passenger->ID, curStation->Name);
-		
+		curStation->PasCnt = curStation->PasCnt + 1;
 		Sleep(3000); //Wait for next ship
 		
 		//Generate next dest 
@@ -280,11 +283,11 @@ void* ship_modeling(void *arg){
 
 void init_data(){
 	int j=0;
-	stations[0] = (Station){0, 122,465, {'A', 'l', 't', 'a', 'i', 'r'}, 		NULL, -1, -1};
-	stations[1] = (Station){1, 386,465, {'C','a','n','o','p','u','s'}, 			NULL, -1, -1};
-	stations[2] = (Station){2, 465,215, {'C','a','p','e','l','l','a'}, 			NULL, -1, -1};
-	stations[3] = (Station){3, 40,215,  {'N','e','w','-','T','e','r','r','a'}, 	NULL, -1, -1};
-	stations[4] = (Station){4, 255,60,  {'E','a','r','t','h'}, 					NULL, -1, -1};
+	stations[0] = (Station){0, 122,465, {'A', 'l', 't', 'a', 'i', 'r'}, 		NULL, -1, -1, 0};
+	stations[1] = (Station){1, 386,465, {'C','a','n','o','p','u','s'}, 			NULL, -1, -1, 0};
+	stations[2] = (Station){2, 465,215, {'C','a','p','e','l','l','a'}, 			NULL, -1, -1, 0};
+	stations[3] = (Station){3, 40,215,  {'N','e','w','-','T','e','r','r','a'}, 	NULL, -1, -1, 0};
+	stations[4] = (Station){4, 255,60,  {'E','a','r','t','h'}, 					NULL, -1, -1, 0};
 	
 	ships[0] = (Ship){0, {'I', 'N', 'K'}, &stations[0], 	0.7, 150, 200, 5, NULL};
 	ships[1] = (Ship){1, {'D', 'E', 'F'}, &stations[1], 	-1.3,200, 100, 5, NULL};
@@ -292,9 +295,12 @@ void init_data(){
 
 	int cnt=1;
 	int tDest;
+//	PS_COUNT = rand() % 4 + 14; //Make around 16 ps's
+	
 	for(j=0;j<PS_COUNT;j=j+1){
 		ps[j] = (Passenger){cnt, rand()%5, -1, WAITING, 0};
 		ps[j].Dest = rand_exclude(5, ps[j].Position, cnt);
+		stations[ps[j].Position].PasCnt = stations[ps[j].Position].PasCnt + 1;
 		cnt = cnt+1;
 	}
 }
@@ -335,13 +341,16 @@ void DrawPlanets(HDC hdc){
 	// Solid pen for planet
 	HPEN pen = CreatePen(PS_SOLID, 2, 0);
 	SelectObject(hdc, pen);
+	char temp[16];
 	// Draw planets and they names
 	int i=0;
 	for(; i<5; i=i+1){
+		memset(temp, 0, sizeof(temp));
 		int x = stations[i].X;
 		int y = stations[i].Y;
 		Ellipse(hdc, x-PLANET_RADIUS, y-PLANET_RADIUS, x+PLANET_RADIUS, y+PLANET_RADIUS);
-		TextOut(hdc, x+PLANET_RADIUS/3, y-PLANET_RADIUS*1.7, stations[i].Name,9);
+		sprintf(temp, "%s\n(%d)", stations[i].Name, stations[i].PasCnt);
+		TextOut(hdc, x+PLANET_RADIUS/3, y-PLANET_RADIUS*1.7, temp,15);
 	}
 	DeleteObject(pen);
 }
