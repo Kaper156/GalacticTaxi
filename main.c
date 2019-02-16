@@ -110,7 +110,7 @@ void* passenger_modeling(void *arg){
 				continue;
 			}
 			curShip->FreeSpace = curShip->FreeSpace - 1;
-			passenger->State == FLY;
+			passenger->State = FLY;
 			passenger->Position = curShip->ID;
 			snprintf(logMessage, 128, "Passenger <%d> landing to ship <%s>", 
 						passenger->ID, curShip->Name);
@@ -442,9 +442,9 @@ void LVPassengers_InitColumns(HWND hwndLV){
 	ListView_SetColumnWidth(hwndLV, 0, 30); //Set id col width 30
 } 
 
-void LVPassengers_LoadItems(HWND hwndLV, Passenger pas_arr[]){
+void LVPassengers_LoadItems(HWND hwndLV){
 	//TODO reformat
-	//TODO pas_arr?
+	//TODO ps?
 	//DElETE ALL
 	ListView_DeleteAllItems(hwndLV);
 //   
@@ -458,7 +458,7 @@ void LVPassengers_LoadItems(HWND hwndLV, Passenger pas_arr[]){
 		memset(&lvItem, 0, sizeof(lvItem));
 		memset(&_id, 0, sizeof(_id));
 		
-		sprintf(_id, "%d", pas_arr[i].ID);
+		sprintf(_id, "%d", ps[i].ID);
 		lvItem.pszText   = _id;
 	    lvItem.mask      = LVIF_TEXT | LVIF_STATE;
 	    lvItem.stateMask = 0;
@@ -467,18 +467,18 @@ void LVPassengers_LoadItems(HWND hwndLV, Passenger pas_arr[]){
 		ListView_InsertItem(hwndLV, &lvItem);
 		
 		lvItem.iSubItem = 1;
-		if(pas_arr[i].State == FLY){
-			lvItem.pszText = ships[pas_arr[i].Position].Name;
-			sprintf(mes, "<%D> in ship <%s>", pas_arr[i], ships[pas_arr[i].Position].Name);
+		if(ps[i].State == FLY){
+			lvItem.pszText = ships[ps[i].Position].Name;
+			sprintf(mes, "<%D> in ship <%s>", ps[i], ships[ps[i].Position].Name);
 			toConsole(mes);
 		}
 		else{
-			lvItem.pszText = stations[pas_arr[i].Position].Name;
+			lvItem.pszText = stations[ps[i].Position].Name;
 		}
 		ListView_SetItem(hwndLV, &lvItem);		
 		
 		lvItem.iSubItem = 2;
-		lvItem.pszText = stations[pas_arr[i].Dest].Name;
+		lvItem.pszText = stations[ps[i].Dest].Name;
 		ListView_SetItem(hwndLV, &lvItem);	
 	}
 }
@@ -505,7 +505,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam) 
 					break;
 				}
 				case TM_PASSENGER:{
-					LVPassengers_LoadItems(listViewPassengers, ps);
+					LVPassengers_LoadItems(listViewPassengers);
 					break;
 				}
 			}
@@ -580,7 +580,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		    700, 10,    1120-700-10, 800-20,
 		    hwnd, (HMENU)3, hInstance,   NULL);
 	LVPassengers_InitColumns(listViewPassengers);
-	LVPassengers_LoadItems(listViewPassengers, ps);
+	LVPassengers_LoadItems(listViewPassengers);
 
 	SetTimer(hwnd, TM_DRAW, 		10, (TIMERPROC)NULL); // 10ms timer for drawning
 	SetTimer(hwnd, TM_PASSENGER, 	1000, (TIMERPROC)NULL); // 10ms timer for upd passengers
