@@ -11,10 +11,10 @@
 #include <stdarg.h>
 
 // Settings
-#define PS_COUNT 	20
+#define PS_COUNT 	5
 #define SHIP_SPEED 	10
 #define PLANET_RADIUS 30
-#define MAX_TRAVELS 35
+#define MAX_TRAVELS 1
 
 // Constants for pas
 #define FLY 	1
@@ -89,7 +89,7 @@ void* passenger_modeling(void *arg){
 	Passenger *passenger = (Passenger*) arg;
 	passenger->State = WAITING;
 	Ship *curShip;
-	Station *curStation;
+	Station *curStation = &stations[passenger->Position];
 	while(passenger->TrvCnt < MAX_TRAVELS){
 	
 		// Wait for our station arriving
@@ -142,6 +142,7 @@ void* passenger_modeling(void *arg){
 		passenger->TrvCnt = passenger->TrvCnt + 1;
 	}	
 	passenger->State = END_TRAVEL;
+	curStation->PasCnt = curStation->PasCnt - 1;
 	return 0;
 }
 
@@ -173,11 +174,17 @@ int find_max_dest(int stID){
 		}
 	}
 	
-//	if(max<1){
-//		return rand_exclude(5, stID, stID);
-//	}
+	// If this station have no passengers
 	if(max<1){
-		return -1;
+		int cntP = (stID + 1) % 5;
+		do{
+			max = stations[cntP].PasCnt;
+			ID = stations[cntP].ID;
+			if(ID == stID){ // exception: no more passengers
+				return -1;
+			}
+			cntP = (cntP + 1) % 5;
+		}while(max<1);
 	}
 	
 	return ID;
@@ -197,20 +204,10 @@ void disembark(Ship *ship){
 Station* ship_arrival(Ship *ship){
 	// Find destination for max passengers
 	int wantedArrive = find_max_dest(ship->Dest->ID); 
-//	if(wantedArrive==-1){ // find station where more than zero passenger
-//		int cnt = ship->Dest->ID;
-//		do{
-//			cnt = (cnt+1) % 5;
-//			if(cnt == ship->Dest->ID){
-//				disembark(ship);
-//				return NULL;
-//			}
-//			wantedArrive = find_max_dest(cnt);
-//		}while(wantedArrive==-1);
-//	}
-
-	if(wantedArrive==-1){
-		wantedArrive = rand_exclude(5, ship->Dest->ID, ship->ID);
+	if(wantedArrive==-1){ // if no more passengers
+		disembark(ship);
+		return ship->Dest;
+//		wantedArrive = rand_exclude(5, ship->Dest->ID, ship->ID);
 	}
 	
 	// Notify station about ship and next Dest
@@ -263,7 +260,7 @@ void* ship_modeling(void *arg){
 			ship_m->Y = ship_m->Dest->Y;
 						
 			// Change inner passengers position to current station			
-			if(ship_arrival(ship_m) == NULL){
+			if(ship_arrival(ship_m) == dest){
 				flagMove = 0;
 			}
 		// Leave port	
@@ -273,7 +270,7 @@ void* ship_modeling(void *arg){
 		dest = ship_m->Dest;
 	}
 	
-	toConsoleSprintf("Ship <%s> leaves station doesnt see any passenger. Stop fly.", 
+	toConsoleSprintf("Ship <%s> stay at station and doesnt see any passenger. Stop fly.", 
 						ship_m->Name);
 	
 	return 0;
@@ -461,14 +458,6 @@ void toConsoleSprintf (char *fmt, ...) {
     SendMessage(consoleBox, LB_ADDSTRING, 0, (LPARAM)buf);
 }
 
-void toConsole(char txt[]){
-	
-	SendMessage(consoleBox, LB_ADDSTRING, 0, (LPARAM)txt);
-	//LB_ADDSTRING
-	//	LB_INSERTSTRING
-	//TODO insert format here
-}
-
 void LVPassengers_InitColumns(HWND hwndLV){ 
    	LVCOLUMN lvc;
 	int i;
@@ -638,7 +627,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	consoleBox = CreateWindow(WC_LISTBOX, NULL,
    			WS_CHILD | WS_VISIBLE | LBS_STANDARD | LBS_DISABLENOSCROLL |
    			LBS_WANTKEYBOARDINPUT,
-   			10, 530, 500, 240,
+   			10, 530, 	500, 240,
    			hwnd, (HMENU) 2, hInstance, NULL);
    	
    	listViewPassengers = CreateWindow(WC_LISTVIEW, NULL,
