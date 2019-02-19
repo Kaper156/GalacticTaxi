@@ -11,14 +11,25 @@
 #include <stdarg.h>
 
 // Settings
-//#define PS_COUNT 	5
-#define SHIP_SPEED 	10
-#define PLANET_RADIUS 30
-#define MAX_TRAVELS 1
+#define SHIP_SPEED 		10
+#define STOP_DELAY 		3000
+#define PASSENGER_SLEEP	100
+#define PLANET_RADIUS 	30
+#define MAX_TRAVELS 	1
 
-// Constants for pas
-#define FLY 	1
-#define WAITING 0
+// For test
+//#define SHIP_SPEED 		100
+//#define STOP_DELAY 		6000
+//#define PASSENGER_SLEEP	100
+//#define PLANET_RADIUS 	30
+//#define MAX_TRAVELS 	1
+
+
+// Constants for passenger->state
+#define LANDING		3
+#define FLY 		2
+#define ARRIVE 		1
+#define WAITING 	0
 #define END_TRAVEL -1
 
 // Timer ID's
@@ -35,9 +46,8 @@ static HWND listViewPassengers;
 void toConsoleSprintf (char *fmt, ...);
 
 // ******* Structures *******
-typedef struct Passenger {
-	int ID, Position, Dest, State, TrvCnt;
-}Passenger;
+//typedef struct Station Station;
+//typedef struct Ship Ship;
 
 typedef struct Station {
 	int ID;
@@ -57,6 +67,13 @@ typedef struct Ship {
 	int FreeSpace;
 	pthread_mutex_t Queue_mut;
 }Ship;
+
+typedef struct Passenger {
+	int ID, State, TrvCnt;
+	Station *From;
+	Station *Dest;
+	Ship *Transport;
+}Passenger;
 
 // ******* Variables *******
 
@@ -82,63 +99,78 @@ int rand_exclude(int border, int exc, int seed){
 }
 
 void* passenger_modeling(void *arg){
-	Passenger *passenger = (Passenger*) arg;
-	passenger->State = WAITING;
-	Ship *curShip;
-	Station *curStation = &stations[passenger->Position];
-	while(passenger->TrvCnt < MAX_TRAVELS){
+	Passenger *pas = (Passenger*) arg;
+	pas->State = WAITING;
+	int shipID;
+	int destID;
+	// Lock for thread safe
+	pthread_mutex_lock(&pas->From->Port_mut);
+	pas->From->PasCnt++;
+	pthread_mutex_unlock(&pas->From->Port_mut);
 	
-		// Wait for our station arriving
-		curStation = &stations[passenger->Position];
-		while((passenger->State==WAITING) & (curStation->ArriveTo != passenger->Dest)){
-			Sleep(100);
+	// Main loop for passenger
+	while(pas->TrvCnt < MAX_TRAVELS){ 
+		// Wait ship to needed station
+		Sleep(STOP_DELAY*0.7); //Wait for next ship
+		while((pas->State==WAITING) & (pas->From->ArriveTo != pas->Dest->ID)){
+			Sleep(PASSENGER_SLEEP);
 		}
 		
 		// Get shipID and check it
-		int shipID = curStation->ShipInPortID;
+		shipID = pas->From->ShipInPortID;
 		if(shipID < 0 ){
-			Sleep(3000);
+			Sleep(STOP_DELAY);
 			continue;
 		}
 		
-		curShip = &ships[shipID];
+		pas->Transport = &ships[shipID];
 		
-		pthread_mutex_lock(&curShip->Queue_mut);
-			if(curShip->FreeSpace < 1){
-				pthread_mutex_unlock(&curShip->Queue_mut);
-				Sleep(3000);
+		pthread_mutex_lock(&pas->Transport->Queue_mut);
+			pas->State = ARRIVE;
+			Sleep(PASSENGER_SLEEP);
+			if(pas->Transport->FreeSpace < 1){
+				pthread_mutex_unlock(&pas->Transport->Queue_mut);
+				pas->Transport = NULL;
 				continue;
 			}
-			curShip->FreeSpace = curShip->FreeSpace - 1;
-			passenger->State = FLY;
-			passenger->Position = curShip->ID;
+			pas->Transport->FreeSpace--;
+			pas->From->PasCnt--; // port mutex locked while queue_mut lock
+			pas->State = FLY;
 			toConsoleSprintf("Passenger <%d> landing to ship <%s>", 
-						passenger->ID, curShip->Name);
-			curStation->PasCnt = curStation->PasCnt - 1;
-			//TODO DECREMENT
-		pthread_mutex_unlock(&curShip->Queue_mut);
+						pas->ID, pas->Transport->Name);
+		pthread_mutex_unlock(&pas->Transport->Queue_mut);
 		
-		while(passenger->State==FLY){
-			Sleep(100);
+		// Sleep until landing
+		while(pas->State != LANDING){
+			Sleep(PASSENGER_SLEEP);
 		}
 		
-		curStation = curShip->Dest;
+		pas->From = pas->Dest;
 		toConsoleSprintf("Passenger <%d> landing to station <%s>", 
-						passenger->ID, curStation->Name);
-		curStation->PasCnt = curStation->PasCnt + 1;
-		Sleep(3000); //Wait for next ship
+						pas->ID, pas->From->Name);
+		
+		pthread_mutex_lock(&pas->From->Port_mut);
+		pas->From->PasCnt++;
+		pthread_mutex_unlock(&pas->From->Port_mut);
+		
+		pas->State = WAITING;
+//		Sleep(STOP_DELAY); //Wait for next ship
 		
 		//Generate next dest 
-		while((passenger->State==WAITING) & (passenger->Dest == passenger->Position)){
-			srand(time(NULL) + passenger->ID);
-			passenger->Dest = rand() % 5;
-			Sleep(10);
-		}
-	
-		passenger->TrvCnt = passenger->TrvCnt + 1;
+		destID = rand_exclude(5, pas->From->ID, pas->ID);
+		pas->Dest = &stations[destID];
+		
+		// Add to cnt
+		pas->TrvCnt++;
 	}	
-	passenger->State = END_TRAVEL;
-	curStation->PasCnt = curStation->PasCnt - 1;
+	pas->State = END_TRAVEL;
+	pas->Dest = pas->From;
+
+	pthread_mutex_lock(&pas->From->Port_mut);
+	pas->From->PasCnt--;
+	pthread_mutex_unlock(&pas->From->Port_mut);
+	
+//	curStation->PasCnt--;
 	return 0;
 }
 
@@ -159,8 +191,9 @@ int find_max_dest(int stID){
 	int cnts[5] = {0,0,0,0,0};
 	
 	for(i=0; i<ps_cnt; i=i+1){ //count dests
-		if((ps[i].State==WAITING) & (ps[i].Position==stID)){
-			cnts[ps[i].Dest] = cnts[ps[i].Dest] + 1;
+		if((ps[i].State==WAITING) & (ps[i].From->ID==stID)){
+			cnts[ps[i].Dest->ID] = cnts[ps[i].Dest->ID] + 1; 
+			// Increment element which store planets who passenger want
 		}
 	}
 	for(i=0; i<5; i=i+1){ //find maximum
@@ -189,12 +222,11 @@ int find_max_dest(int stID){
 void disembark(Ship *ship){
 	int i;
 	for(i=0; i<ps_cnt; i=i+1){
-		if((ps[i].State == FLY) & (ps[i].Position == ship->ID)){
-			ps[i].Position = ship->Dest->ID;
-			ps[i].State = WAITING;
+		if((ps[i].State == FLY) & (ps[i].Transport == ship)){
+			ps[i].State = LANDING;
+			ship->FreeSpace++;
 		}
 	}
-	ship->FreeSpace = 5;
 }
 
 Station* ship_arrival(Ship *ship){
@@ -214,7 +246,7 @@ Station* ship_arrival(Ship *ship){
 	disembark(ship);	
 	
 	// Wait for arriving passengers
-	Sleep(3000);	
+	Sleep(STOP_DELAY);	
 	
 	// Notify station about ship departure
 	ship->Dest->ArriveTo = -1; // no station
@@ -276,43 +308,60 @@ void* ship_modeling(void *arg){
 
 void init_data(){
 	int j=0;
+	int cnt=1;
+	int tempID;
+	
+	// Stations init	
 	stations[0] = (Station){0, 122,465, {'A', 'l', 't', 'a', 'i', 'r'}, 		NULL, -1, -1, 0};
 	stations[1] = (Station){1, 386,465, {'C','a','n','o','p','u','s'}, 			NULL, -1, -1, 0};
 	stations[2] = (Station){2, 465,215, {'C','a','p','e','l','l','a'}, 			NULL, -1, -1, 0};
 	stations[3] = (Station){3, 40,215,  {'N','e','w','-','T','e','r','r','a'}, 	NULL, -1, -1, 0};
 	stations[4] = (Station){4, 255,60,  {'E','a','r','t','h'}, 					NULL, -1, -1, 0};
 	
+	// Ships init
 	ships[0] = (Ship){0, {'I', 'N', 'K'}, &stations[0], 	0.7, 150, 200, 5, NULL};
 	ships[1] = (Ship){1, {'D', 'E', 'F'}, &stations[1], 	-1.3,200, 100, 5, NULL};
 	ships[2] = (Ship){2, {'A', 'R', 'K'}, &stations[2], 	0, 	  32, 300, 5, NULL};
 
-	int cnt=1;
-	int tDest;
-	ps_cnt = rand() % 4 + 14; //Make around 16 ps's
+	// Passenger generating
+	ps_cnt = rand() % 5 + 14; //Make around 16 ps's
 	ps = (Passenger*) malloc(sizeof(Passenger) * ps_cnt);
 	
 	for(j=0;j<ps_cnt;j=j+1){
-		ps[j] = (Passenger){cnt, rand()%5, -1, WAITING, 0};
-		ps[j].Dest = rand_exclude(5, ps[j].Position, cnt);
-		stations[ps[j].Position].PasCnt = stations[ps[j].Position].PasCnt + 1;
+//		ps[j] = (Passenger){cnt, rand()%5, -1, WAITING, 0};
+		ps[j] = (Passenger){cnt, WAITING, 0, NULL, NULL, NULL};
+		
+		tempID = rand_exclude(5, -1, cnt); // Generate position (exclude -1)
+		ps[j].From = &stations[tempID];
+		
+		tempID = rand_exclude(5, tempID, cnt); // Exclude FROM
+		ps[j].Dest = &stations[tempID];
+		
+//		ps[j].Dest.PasCnt = stations[ps[j].Position].PasCnt + 1;
+//		ps[j].Dest->PasCnt++;
 		cnt = cnt+1;
 	}
 }
 
 void start_threads(){
 	int j;
+	
+	// Init station port mutex
 	for(j=0;j<5;j=j+1){
 		pthread_mutex_init(&stations[j].Port_mut,NULL);
 	}	
-	for(j=0;j<3;j=j+1)	{		
-		pthread_mutex_init(&ships[j].Queue_mut,NULL);
-		pthread_create(&threads_ships[j], NULL, ship_modeling, (void*) &ships[j]);	 
-	}
+	
+	// Init passenger threads
 	threads_ps = (pthread_t*) malloc(sizeof(pthread_t) * ps_cnt);
 	for(j=0;j<ps_cnt; j=j+1){
 		pthread_create(&threads_ps[j], NULL, passenger_modeling, (void*) &ps[j]);
 	}
 	
+	// Init ships threads and queue mutex
+	for(j=0;j<3;j=j+1)	{		
+		pthread_mutex_init(&ships[j].Queue_mut,NULL);
+		pthread_create(&threads_ships[j], NULL, ship_modeling, (void*) &ships[j]);	 
+	}	
 }
 
 void stop_threads(){
@@ -384,45 +433,6 @@ void DrawShips (HDC hdc){
 	DeleteObject(brush);
 }
 
-void DrawPassengerList(HDC hdc){
-	//TODO normal or listBox
-	HBRUSH brush = CreateSolidBrush(0);
-	SelectObject(hdc, brush);
-	
-	int X = 700,Y = 20;
-	char ids[8][124], temp[4];
-	int i, j;
-	
-	for(i=0;i<ps_cnt;i=i+1){
-		j = ps[i].Position;
-		if(ps[i].State == FLY){
-			j = j+5;
-		}
-		memset(temp, 0, 4);
-		sprintf(temp, "%d, ", ps[i].ID);
-		strcat(ids[j], temp);
-	}
-	
-	char txt[124];
-	for(i=0;i<5;i=i+1){
-		memset(txt, 0, 124);
-		sprintf(txt, "Planet <%s>:", stations[i]);
-		strcat(txt, ids[i]);
-		TextOut(hdc, X,Y, txt,124);
-		Y = Y + 25;
-	}
-	for(;i<8;i=i+1){
-		memset(txt, 0, 124);
-		sprintf(txt, "Ship <%s>:", ships[i]);
-		strcat(txt, ids[i]);
-		TextOut(hdc, X,Y, txt,124);
-		Y = Y + 25;
-	}
-	
-	
-	DeleteObject(brush);
-}
-
 void DrawComponents(HDC hdc, RECT rect){
 	int width = rect.right - rect.left;
 	int height = rect.bottom - rect.top;
@@ -453,25 +463,26 @@ void toConsoleSprintf (char *fmt, ...) {
     va_start (va, fmt);
     vsprintf (buf, fmt, va);
     va_end (va);
-    SendMessage(consoleBox, LB_ADDSTRING, 0, (LPARAM)buf);
+    SendMessage(consoleBox, LB_ADDSTRING, 1, (LPARAM)buf);
 }
 
 void LVPassengers_InitColumns(HWND hwndLV){ 
    	LVCOLUMN lvc;
 	int i;
-	char cTitles[5][12];
+	char cTitles[6][12];
 	
 	strcpy(cTitles[0], "ID");
 	strcpy(cTitles[1], "State");
-	strcpy(cTitles[2], "Position");
-	strcpy(cTitles[3], "Destination");
-	strcpy(cTitles[4], "Travel count");
+	strcpy(cTitles[2], "From");
+	strcpy(cTitles[3], "Position");
+	strcpy(cTitles[4], "Destination");
+	strcpy(cTitles[5], "Travel count");
 	
-	for(i=0;i<5;i=i+1){
+	for(i=0;i<6;i=i+1){
 		memset(&lvc, 0, sizeof(lvc));
 		lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
 		lvc.fmt = LVCFMT_LEFT;
-		lvc.cx = 80;
+		lvc.cx = 65;
 		lvc.pszText = cTitles[i];
 		lvc.iSubItem = i;
 		ListView_InsertColumn(hwndLV, i, & lvc);
@@ -487,10 +498,7 @@ void LVPassengers_LoadItems(HWND hwndLV){
 	ListView_DeleteAllItems(hwndLV);
 	
 	for(i=0; i<ps_cnt; i=i+1){
-		if(ps[i].State == END_TRAVEL){
-			continue;
-		}
-		
+
 		memset(&lvItem, 0, sizeof(lvItem));
 		memset(&temp, 0, sizeof(temp));
 		
@@ -504,31 +512,36 @@ void LVPassengers_LoadItems(HWND hwndLV){
 		
 		// Set state
 		lvItem.iSubItem = 1;
-		if(ps[i].State == FLY){
-			lvItem.pszText = "Flying";
+		switch(ps[i].State){
+			case LANDING: lvItem.pszText = "Landing"; break;
+			case FLY: lvItem.pszText = "Flying"; break;
+			case ARRIVE: lvItem.pszText = "Arrive"; break;
+			case WAITING: lvItem.pszText = "Waiting"; break;
+			case END_TRAVEL: lvItem.pszText = "Stop"; break;
 		}
-		else{
-			lvItem.pszText = "Waiting";
-		}
+		ListView_SetItem(hwndLV, &lvItem);		
+		
+		// Set From
+		lvItem.iSubItem = 2;
+		lvItem.pszText = ps[i].From->Name;
 		ListView_SetItem(hwndLV, &lvItem);		
 		
 		// Set Position
-		lvItem.iSubItem = 2;
-		if(ps[i].State == FLY){
-			lvItem.pszText = ships[ps[i].Position].Name;
+		if(ps[i].Transport != NULL){
+			lvItem.iSubItem = 3;
+			lvItem.pszText = ps[i].Transport->Name;
+			ListView_SetItem(hwndLV, &lvItem);		
 		}
-		else{
-			lvItem.pszText = stations[ps[i].Position].Name;
-		}
-		ListView_SetItem(hwndLV, &lvItem);		
 		
 		// Set Destination
-		lvItem.iSubItem = 3;
-		lvItem.pszText = stations[ps[i].Dest].Name;
+//		if(ps[i].Dest != NULL){
+		lvItem.iSubItem = 4;
+		lvItem.pszText = ps[i].Dest->Name;
 		ListView_SetItem(hwndLV, &lvItem);	
+//		}
 		
 		// Set TrvCnt
-		lvItem.iSubItem = 4;
+		lvItem.iSubItem = 5;
 		memset(&temp, 0, sizeof(temp));
 		sprintf(temp, "%d", ps[i].TrvCnt);
 		lvItem.pszText = temp;
@@ -623,8 +636,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		NULL,NULL,hInstance,NULL);
 
 	consoleBox = CreateWindow(WC_LISTBOX, NULL,
-   			WS_CHILD | WS_VISIBLE | LBS_STANDARD | LBS_DISABLENOSCROLL |
-   			LBS_WANTKEYBOARDINPUT,
+   			WS_CHILD | WS_VISIBLE |  WS_BORDER | WS_VSCROLL | LBS_DISABLENOSCROLL | LBS_WANTKEYBOARDINPUT,
    			10, 530, 	500, 240,
    			hwnd, (HMENU) 2, hInstance, NULL);
    	
