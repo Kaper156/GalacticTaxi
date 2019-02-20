@@ -11,19 +11,22 @@
 #include <stdarg.h>
 
 // Settings
-#define SHIP_SPEED 		10
+#define SHIP_DELAY 		10
 #define STOP_DELAY 		3000
 #define PASSENGER_SLEEP	100
 #define PLANET_RADIUS 	30
 #define MAX_TRAVELS 	1
+#define PAS_COUNT_MIN 16
+#define PAS_COUNT_RAND 5
 
 // For test
-//#define SHIP_SPEED 		100
+//#define SHIP_DELAY 		100
 //#define STOP_DELAY 		6000
 //#define PASSENGER_SLEEP	100
 //#define PLANET_RADIUS 	30
 //#define MAX_TRAVELS 	1
-
+//#define PAS_COUNT_MIN 16
+//#define PAS_COUNT_RAND 5
 
 // Constants for passenger->state
 #define LANDING		3
@@ -38,16 +41,14 @@
 
 // hwnds
 static HWND hwnd; 
-static HWND startWindow;
 static HWND consoleBox;
+static HWND btnStart;
 static HWND listViewPassengers;
 
 // Logs
 void toConsoleSprintf (char *fmt, ...);
 
 // ******* Structures *******
-//typedef struct Station Station;
-//typedef struct Ship Ship;
 
 typedef struct Station {
 	int ID;
@@ -100,23 +101,26 @@ int rand_exclude(int border, int exc, int seed){
 
 void* passenger_modeling(void *arg){
 	Passenger *pas = (Passenger*) arg;
-	pas->State = WAITING;
 	int shipID;
 	int destID;
+	
+	pas->State = WAITING;
+	
 	// Lock for thread safe
 	pthread_mutex_lock(&pas->From->Port_mut);
 	pas->From->PasCnt++;
 	pthread_mutex_unlock(&pas->From->Port_mut);
 	
-	// Main loop for passenger
+	// Main loop for a passenger
 	while(pas->TrvCnt < MAX_TRAVELS){ 
-		// Wait ship to needed station
 		Sleep(STOP_DELAY*0.7); //Wait for next ship
+		
+		// Waiting for the ship to the necessary station
 		while((pas->State==WAITING) & (pas->From->ArriveTo != pas->Dest->ID)){
 			Sleep(PASSENGER_SLEEP);
 		}
 		
-		// Get shipID and check it
+		// Getting shipID and checking it
 		shipID = pas->From->ShipInPortID;
 		if(shipID < 0 ){
 			Sleep(STOP_DELAY);
@@ -131,30 +135,26 @@ void* passenger_modeling(void *arg){
 			if(pas->Transport->FreeSpace < 1){
 				pthread_mutex_unlock(&pas->Transport->Queue_mut);
 				pas->Transport = NULL;
+				pas->State = WAITING;
 				continue;
 			}
 			pas->Transport->FreeSpace--;
-			pas->From->PasCnt--; // port mutex locked while queue_mut lock
+			pas->From->PasCnt--; // port mutex locked when queue_mut locked
 			pas->State = FLY;
-			toConsoleSprintf("Passenger <%d> landing to ship <%s>", 
+			toConsoleSprintf("Passenger <%d> boards to the ship <%s>", 
 						pas->ID, pas->Transport->Name);
 		pthread_mutex_unlock(&pas->Transport->Queue_mut);
 		
-		// Sleep until landing
+		// Sleeping until landing
 		while(pas->State != LANDING){
 			Sleep(PASSENGER_SLEEP);
 		}
 		
 		pas->From = pas->Dest;
-		toConsoleSprintf("Passenger <%d> landing to station <%s>", 
+		pas->Transport = NULL;
+		toConsoleSprintf("Passenger <%d> lands to the station <%s>", 
 						pas->ID, pas->From->Name);
-		
-		pthread_mutex_lock(&pas->From->Port_mut);
-		pas->From->PasCnt++;
-		pthread_mutex_unlock(&pas->From->Port_mut);
-		
 		pas->State = WAITING;
-//		Sleep(STOP_DELAY); //Wait for next ship
 		
 		//Generate next dest 
 		destID = rand_exclude(5, pas->From->ID, pas->ID);
@@ -170,7 +170,6 @@ void* passenger_modeling(void *arg){
 	pas->From->PasCnt--;
 	pthread_mutex_unlock(&pas->From->Port_mut);
 	
-//	curStation->PasCnt--;
 	return 0;
 }
 
@@ -186,14 +185,13 @@ Station* ship_nextDest(Ship *ship, int next_dest){
 }
 
 int find_max_dest(int stID){
-	// Find maximum destination who passenger want
-	int max = 0, ID = 0, i=0;
+	// Defining the destination chosen by the majority of passengers
+	int max = 0, ID = -1, i=0;
 	int cnts[5] = {0,0,0,0,0};
 	
-	for(i=0; i<ps_cnt; i=i+1){ //count dests
+	for(i=0; i<ps_cnt; i=i+1){ // count dests
 		if((ps[i].State==WAITING) & (ps[i].From->ID==stID)){
-			cnts[ps[i].Dest->ID] = cnts[ps[i].Dest->ID] + 1; 
-			// Increment element which store planets who passenger want
+			cnts[ ps[i].Dest->ID ]++;
 		}
 	}
 	for(i=0; i<5; i=i+1){ //find maximum
@@ -223,9 +221,10 @@ void disembark(Ship *ship){
 	int i;
 	for(i=0; i<ps_cnt; i=i+1){
 		if((ps[i].State == FLY) & (ps[i].Transport == ship)){
+			ship->FreeSpace++; // Free one space on ship
+			ship->Dest->PasCnt++; // Add Passenger to station
 			ps[i].State = LANDING;
-			ship->FreeSpace++;
-		}
+		} 
 	}
 }
 
@@ -234,19 +233,23 @@ Station* ship_arrival(Ship *ship){
 	int wantedArrive = find_max_dest(ship->Dest->ID); 
 	if(wantedArrive==-1){ // if no more passengers
 		disembark(ship);
-		return ship->Dest;
-//		wantedArrive = rand_exclude(5, ship->Dest->ID, ship->ID);
+		// Return current station. 
+		// This is a signal to end fly
+		return ship->Dest; 
+		
 	}
+	
+	// Change position of passengers in ship and release sem
+	disembark(ship);
 	
 	// Notify station about ship and next Dest
 	ship->Dest->ShipInPortID = ship->ID;
 	ship->Dest->ArriveTo = wantedArrive;
 	
-	// Change position of passengers in ship and release sem
-	disembark(ship);	
-	
-	// Wait for arriving passengers
-	Sleep(STOP_DELAY);	
+	if(ship->Dest->PasCnt > 0){
+		// Wait for arriving passengers
+		Sleep(STOP_DELAY);
+	}	
 	
 	// Notify station about ship departure
 	ship->Dest->ArriveTo = -1; // no station
@@ -264,9 +267,10 @@ void* ship_modeling(void *arg){
 	short flagMove=1;
 	int next = rand_exclude(5, ship_m->Dest->ID, ship_m->ID);
 	dest = ship_nextDest(ship_m, next);
-		
+	
 	// Cycle of flying
 	while(flagMove>0){
+		dest = ship_m->Dest;
 		double dx = cos(ship_m->Direction);
 		double dy = sin(ship_m->Direction);
 		
@@ -274,9 +278,9 @@ void* ship_modeling(void *arg){
 		while( !(	((dest->X+PLANET_RADIUS > ship_m->X)&(dest->X-PLANET_RADIUS < ship_m->X)) &
 					((dest->Y+PLANET_RADIUS > ship_m->Y)&(dest->Y-PLANET_RADIUS < ship_m->Y)) ))
 		{
-			ship_m->X = ship_m->X+dx;
-			ship_m->Y = ship_m->Y+dy;
-			Sleep(SHIP_SPEED);
+			ship_m->X = ship_m->X + dx;
+			ship_m->Y = ship_m->Y + dy;
+			Sleep(SHIP_DELAY);
 		}
 		
 		// Wait in the planet's orbit
@@ -294,13 +298,11 @@ void* ship_modeling(void *arg){
 		// Leave port	
 		pthread_mutex_unlock(&dest->Port_mut);
 		toConsoleSprintf("Ship <%s> leaves station <%s>", 
-						ship_m->Name,ship_m->Dest->Name);
-		dest = ship_m->Dest;
+						ship_m->Name,dest->Name);
 	}
 	
-	toConsoleSprintf("Ship <%s> stay at station and doesnt see any passenger. Stop fly.", 
+	toConsoleSprintf("Ship <%s> stops flying.", 
 						ship_m->Name);
-	
 	return 0;
 }
 
@@ -308,8 +310,8 @@ void* ship_modeling(void *arg){
 
 void init_data(){
 	int j=0;
-	int cnt=1;
-	int tempID;
+	int cnt=1; // ID counter for passengers
+	int tempID; // for generate Station.ID for passenger
 	
 	// Stations init	
 	stations[0] = (Station){0, 122,465, {'A', 'l', 't', 'a', 'i', 'r'}, 		NULL, -1, -1, 0};
@@ -324,11 +326,10 @@ void init_data(){
 	ships[2] = (Ship){2, {'A', 'R', 'K'}, &stations[2], 	0, 	  32, 300, 5, NULL};
 
 	// Passenger generating
-	ps_cnt = rand() % 5 + 14; //Make around 16 ps's
+	ps_cnt = rand() % PAS_COUNT_RAND + PAS_COUNT_MIN; 
 	ps = (Passenger*) malloc(sizeof(Passenger) * ps_cnt);
 	
 	for(j=0;j<ps_cnt;j=j+1){
-//		ps[j] = (Passenger){cnt, rand()%5, -1, WAITING, 0};
 		ps[j] = (Passenger){cnt, WAITING, 0, NULL, NULL, NULL};
 		
 		tempID = rand_exclude(5, -1, cnt); // Generate position (exclude -1)
@@ -337,8 +338,6 @@ void init_data(){
 		tempID = rand_exclude(5, tempID, cnt); // Exclude FROM
 		ps[j].Dest = &stations[tempID];
 		
-//		ps[j].Dest.PasCnt = stations[ps[j].Position].PasCnt + 1;
-//		ps[j].Dest->PasCnt++;
 		cnt = cnt+1;
 	}
 }
@@ -364,30 +363,29 @@ void start_threads(){
 	}	
 }
 
-void stop_threads(){
-	int j;
-	
-	for(j=0;j<5;j=j+1){
-		pthread_mutex_destroy(&stations[j].Port_mut);
-	}	
-	for(j=0;j<3;j=j+1)	{		
-		pthread_mutex_destroy(&ships[j].Queue_mut);
-		pthread_exit(&threads_ships[j]);	 
-	}
-	for(j=0;j<ps_cnt; j=j+1){
-		pthread_exit(&threads_ps[j]);
-	}
-}
-
 // ******* Drawning *******
 
-void DrawPlanets(HDC hdc){
-	// Solid pen for planet
-	HPEN pen = CreatePen(PS_SOLID, 2, 0);
+void DrawRoutes(HDC hdc){
+	// Draw routes
+	HPEN pen = CreatePen(PS_DASH, 1, 0); // Dash pen for routes
+	SelectObject(hdc, pen);
+	int i,j;
+	for(i=0; i<5; i=i+1){
+		for(j=4;j>i;j=j-1){
+			MoveToEx(hdc, stations[i].X, stations[i].Y, 0);
+			LineTo(hdc, stations[j].X, stations[j].Y);
+		}
+	}
+	DeleteObject(pen);
+}
+
+void DrawStations(HDC hdc){
+	// Draw stations and they names
+	HPEN pen = CreatePen(PS_SOLID, 2, 0); // Solid pen for planet
 	SelectObject(hdc, pen);
 	char temp[16];
-	// Draw planets and they names
 	int i=0;
+	
 	for(; i<5; i=i+1){
 		memset(temp, 0, sizeof(temp));
 		int x = stations[i].X;
@@ -395,21 +393,6 @@ void DrawPlanets(HDC hdc){
 		Ellipse(hdc, x-PLANET_RADIUS, y-PLANET_RADIUS, x+PLANET_RADIUS, y+PLANET_RADIUS);
 		sprintf(temp, "%s\n(%d)", stations[i].Name, stations[i].PasCnt);
 		TextOut(hdc, x+PLANET_RADIUS/3, y-PLANET_RADIUS*1.7, temp,15);
-	}
-	DeleteObject(pen);
-}
-
-void DrawRoutes(HDC hdc){
-	HPEN pen = CreatePen(PS_DASH, 1, 0);
-	SelectObject(hdc, pen);
-	// Draw routes
-	int i=0;
-	for(; i<5; i=i+1){
-		int j=4;
-		for(;j>i;j=j-1){
-			MoveToEx(hdc, stations[i].X, stations[i].Y, 0);
-			LineTo(hdc, stations[j].X, stations[j].Y);
-		}
 	}
 	DeleteObject(pen);
 }
@@ -446,9 +429,8 @@ void DrawComponents(HDC hdc, RECT rect){
 	DeleteObject(hBrush);
 	SetTextAlign(hMemDC, TA_CENTER);
  	DrawRoutes(hMemDC);
- 	DrawPlanets(hMemDC);
+ 	DrawStations(hMemDC);
  	DrawShips(hMemDC);
-//	DrawPassengerList(hMemDC);
 	
 	BitBlt(hdc, 0, 0, width, height, hMemDC, 0, 0, SRCCOPY);
 	DeleteObject(hMemBitmap);
@@ -463,7 +445,7 @@ void toConsoleSprintf (char *fmt, ...) {
     va_start (va, fmt);
     vsprintf (buf, fmt, va);
     va_end (va);
-    SendMessage(consoleBox, LB_ADDSTRING, 1, (LPARAM)buf);
+    SendMessage(consoleBox, LB_INSERTSTRING, 0, (LPARAM)buf);
 }
 
 void LVPassengers_InitColumns(HWND hwndLV){ 
@@ -474,15 +456,15 @@ void LVPassengers_InitColumns(HWND hwndLV){
 	strcpy(cTitles[0], "ID");
 	strcpy(cTitles[1], "State");
 	strcpy(cTitles[2], "From");
-	strcpy(cTitles[3], "Position");
-	strcpy(cTitles[4], "Destination");
-	strcpy(cTitles[5], "Travel count");
+	strcpy(cTitles[3], "Ship");
+	strcpy(cTitles[4], "Dest");
+	strcpy(cTitles[5], "Travels");
 	
 	for(i=0;i<6;i=i+1){
 		memset(&lvc, 0, sizeof(lvc));
 		lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
 		lvc.fmt = LVCFMT_LEFT;
-		lvc.cx = 65;
+		lvc.cx = 70;
 		lvc.pszText = cTitles[i];
 		lvc.iSubItem = i;
 		ListView_InsertColumn(hwndLV, i, & lvc);
@@ -495,6 +477,7 @@ void LVPassengers_LoadItems(HWND hwndLV){
 	char temp[3];
 	LVITEM lvItem;
 	
+	// Clear before update
 	ListView_DeleteAllItems(hwndLV);
 	
 	for(i=0; i<ps_cnt; i=i+1){
@@ -513,11 +496,11 @@ void LVPassengers_LoadItems(HWND hwndLV){
 		// Set state
 		lvItem.iSubItem = 1;
 		switch(ps[i].State){
-			case LANDING: lvItem.pszText = "Landing"; break;
-			case FLY: lvItem.pszText = "Flying"; break;
-			case ARRIVE: lvItem.pszText = "Arrive"; break;
-			case WAITING: lvItem.pszText = "Waiting"; break;
-			case END_TRAVEL: lvItem.pszText = "Stop"; break;
+			case LANDING: 		lvItem.pszText = "Landing"; break;
+			case FLY: 			lvItem.pszText = "Flying"; break;
+			case ARRIVE: 		lvItem.pszText = "Arrive"; break;
+			case WAITING: 		lvItem.pszText = "Waiting"; break;
+			case END_TRAVEL: 	lvItem.pszText = "Stop"; break;
 		}
 		ListView_SetItem(hwndLV, &lvItem);		
 		
@@ -526,7 +509,7 @@ void LVPassengers_LoadItems(HWND hwndLV){
 		lvItem.pszText = ps[i].From->Name;
 		ListView_SetItem(hwndLV, &lvItem);		
 		
-		// Set Position
+		// Set Ship
 		if(ps[i].Transport != NULL){
 			lvItem.iSubItem = 3;
 			lvItem.pszText = ps[i].Transport->Name;
@@ -534,11 +517,9 @@ void LVPassengers_LoadItems(HWND hwndLV){
 		}
 		
 		// Set Destination
-//		if(ps[i].Dest != NULL){
 		lvItem.iSubItem = 4;
 		lvItem.pszText = ps[i].Dest->Name;
 		ListView_SetItem(hwndLV, &lvItem);	
-//		}
 		
 		// Set TrvCnt
 		lvItem.iSubItem = 5;
@@ -549,18 +530,12 @@ void LVPassengers_LoadItems(HWND hwndLV){
 	}
 }
 
-LRESULT OnCommand(HWND hwnd, int id, HWND hwndCtl, UINT codeNotify){
-	switch(id){
-		case 5: {break;}
-	}
-}
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam) {
 	HDC hdc;
 	PAINTSTRUCT paintStr;
 	switch(Message) {
 		case WM_DESTROY: {
-			stop_threads();
 			PostQuitMessage(0);
 			break;
 		}
@@ -587,13 +562,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam) 
 			InvalidateRect(hwnd, NULL, FALSE);
 			break;
 		}
-		case WM_ERASEBKGND: {
-			return 1;
-		}
 		
+		case WM_COMMAND:{
+			switch(LOWORD(wParam)){
+				case 5:{
+					start_threads();
+					toConsoleSprintf("Threads started");
+					// After start disable button
+					EnableWindow(btnStart, FALSE);  
+					break;
+				}				
+			}
+			break;
+		}
 		default: return DefWindowProc(hwnd, Message, wParam, lParam);
 	}
-//	HANDLE_MSG(hwnd, WM_COMMAND, OnCommand);
 	return 0;
 }
 
@@ -619,13 +602,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		return 0;
 	}
 	
-	//main dialog
-	 startWindow = CreateWindow("frame","Galactic democratic transport modeling program",
-	 		WS_VISIBLE|WS_OVERLAPPED | WS_SYSMENU | WS_CLIPCHILDREN |
-			WS_TILEDWINDOW | WS_VISIBLE | LBS_STANDARD,
-			100, 900, 800, 360,
-			hwnd,NULL,hInstance,NULL);
-
 	//main window
 	hwnd = CreateWindowEx(WS_EX_CLIENTEDGE,"WindowClass","Galactic democratic transport modeling program", 
 		WS_VISIBLE|WS_OVERLAPPED | WS_SYSMENU | WS_CLIPCHILDREN ,
@@ -636,20 +612,24 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		NULL,NULL,hInstance,NULL);
 
 	consoleBox = CreateWindow(WC_LISTBOX, NULL,
-   			WS_CHILD | WS_VISIBLE |  WS_BORDER | WS_VSCROLL | LBS_DISABLENOSCROLL | LBS_WANTKEYBOARDINPUT,
-   			10, 530, 	500, 240,
+			WS_CHILD | WS_VISIBLE | LBS_STANDARD | LBS_DISABLENOSCROLL | LBS_WANTKEYBOARDINPUT,
+   			10, 530, 	680, 240,
    			hwnd, (HMENU) 2, hInstance, NULL);
+   	
+   	btnStart = CreateWindow(WC_BUTTON, "Start",
+   			WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_EX_CLIENTEDGE | WS_BORDER | BS_CENTER,
+			750, 10,    1120-750-20, 30,
+   			hwnd, (HMENU)5, hInstance, NULL);
    	
    	listViewPassengers = CreateWindow(WC_LISTVIEW, NULL,
 		    WS_VISIBLE | WS_CHILD | LVS_REPORT | LVS_EDITLABELS,
-		    700, 10,    1120-700-10, 800-20,
+		    700, 50,    1120-700-10, 800-40-20,
 		    hwnd, (HMENU)3, hInstance,   NULL);
 	LVPassengers_InitColumns(listViewPassengers);
 	LVPassengers_LoadItems(listViewPassengers);
 
 	SetTimer(hwnd, TM_DRAW, 		10, (TIMERPROC)NULL); // 10ms timer for drawning
 	SetTimer(hwnd, TM_PASSENGER, 	1000, (TIMERPROC)NULL); // 10ms timer for upd passengers
-	start_threads();
 
 	while(GetMessage(&msg, NULL, 0, 0) > 0) {
 		TranslateMessage(&msg);
