@@ -1,0 +1,42 @@
+
+Station* ship_nextDest(Ship *ship, int next_dest){
+	int x1 = ship->X;
+	int y1 = ship->Y;
+	int x2 = stations[next_dest].X;
+	int y2 = stations[next_dest].Y;
+
+	ship->Direction = atan2((y2-y1),(x2-x1));
+	ship->Dest = &stations[next_dest];
+	return &stations[next_dest];
+}
+
+void* ship_modeling(void *arg){
+	Ship *ship_m = (Ship*) arg;
+	Station *dest;
+	while(1){
+		// TODO DELETE THIS
+		int next;
+		do{
+			Sleep(SHIP_SPEED);
+			srand(time(NULL) + (int)ship_m->Name[1] );
+			next = rand() % 5;
+		}while(next==ship_m->Dest->ID);
+		dest = ship_nextDest(ship_m, next);
+		// TODO change next
+		// TODO DELETE THIS
+		
+		int dx = (int)(cos(ship_m->Direction)*10);
+		int dy = (int)(sin(ship_m->Direction)*10);
+		
+//		int stX = ship_m->Dest->X;
+//		int stY = ship_m->Dest->Y;
+		
+		// Flying
+		while( !(	((dest->X+PLANET_RADIUS > ship_m->X)&(dest->X-PLANET_RADIUS < ship_m->X)) &
+					((dest->Y+PLANET_RADIUS > ship_m->Y)&(dest->Y-PLANET_RADIUS < ship_m->Y)) ))
+		{
+			ship_m->X = ship_m->X+dx;
+			ship_m->Y = ship_m->Y+dy;
+			InvalidateRect(hwnd, NULL, FALSE);
+			Sleep(SHIP_SPEED);
+		}

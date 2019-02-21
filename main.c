@@ -19,15 +19,6 @@
 #define PAS_COUNT_MIN 16
 #define PAS_COUNT_RAND 5
 
-// For test
-//#define SHIP_DELAY 		100
-//#define STOP_DELAY 		6000
-//#define PASSENGER_SLEEP	100
-//#define PLANET_RADIUS 	30
-//#define MAX_TRAVELS 	1
-//#define PAS_COUNT_MIN 16
-//#define PAS_COUNT_RAND 5
-
 // Constants for passenger->state
 #define LANDING		3
 #define FLY 		2

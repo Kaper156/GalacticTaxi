@@ -1,0 +1,21 @@
+Привет, я тут мучаю мозг немного
+не знаю что лучше сделать, односвязный список или просто массив пассажиров.
+Кароче на каждой станции будет либо 4 однсвязных списка,  в каждом {int nextStation, int id, Pas *nextPas}
+или просто 
+
+int Ps[100][2];
+
+Ps = {'id','dest'}
+
+
+
+//
+Passengers pass;
+	pass.DestID = next_station(exclude);
+	pass.ids = malloc(sizeof(int)*cnt);
+	while(cnt>0){
+		PasID = PasID+1;
+		pass->ids[cnt-1] = PasID; // Ids = [id_last,.. ,id_start]
+		cnt = cnt -1;
+	}
+	return pass;
